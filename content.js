@@ -278,9 +278,10 @@
     };
   }
 
-  async function fetchPage(api, start, token) {
+  async function fetchPage(api, start, token, count = api.pageSize) {
     const tok = token ? `,paginationToken:${encodeURIComponent(token)}` : "";
-    const vars = `(start:${start}${tok},query:(flagshipSearchIntent:SEARCH_MY_ITEMS_SAVED_POSTS))`;
+    const cnt = count ? `,count:${count}` : "";
+    const vars = `(start:${start}${cnt}${tok},query:(flagshipSearchIntent:SEARCH_MY_ITEMS_SAVED_POSTS))`;
     const res = await fetch(`/voyager/api/graphql?variables=${vars}&queryId=${api.queryId}`, {
       credentials: "include",
       headers: {
@@ -325,7 +326,18 @@
 
   async function fastScrape(mode, known) {
     const api = await learnApi();
-    send({ type: "log", msg: "Henter via LinkedIns datakald (hurtig metode)." });
+
+    // Forsøg med 50 opslag pr. side. Accepterer LinkedIn det ikke,
+    // bruges standarden på 10.
+    api.pageSize = null;
+    try {
+      const probe = parsePage(await fetchPage(api, 0, null, 50));
+      if (probe.posts.length > 10) api.pageSize = 50;
+    } catch (_) {}
+    send({
+      type: "log",
+      msg: `Henter via LinkedIns datakald (hurtig metode, ${api.pageSize || 10} opslag pr. side).`
+    });
     const seen = new Set();
     let start = 0, token = null, total = 0, knownStreak = 0, emptyPages = 0;
 
@@ -378,7 +390,7 @@
       }
       token = next;
       start += count || 10;
-      await sleep(800 + Math.random() * 700);
+      await sleep(400 + Math.random() * 300);
     }
     send({
       type: "done",

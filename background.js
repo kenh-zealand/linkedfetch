@@ -57,10 +57,22 @@ async function settings() {
   return chrome.storage.local.get(["token", "pageId", "databaseId", "autoDaily"]);
 }
 
+// Notion tillader i gennemsnit omkring 3 kald i sekundet. Alle kald går
+// gennem denne "port", som holder mindst 340 ms mellem hvert kald.
+const NOTION_GAP_MS = 340;
+let nextSlot = 0;
+async function rateGate() {
+  const now = Date.now();
+  const slot = Math.max(now, nextSlot);
+  nextSlot = slot + NOTION_GAP_MS;
+  if (slot > now) await sleep(slot - now);
+}
+
 async function notion(path, method = "GET", body) {
   const { token } = await settings();
   for (let attempt = 0; attempt < 6; attempt++) {
     let res;
+    await rateGate();
     try {
       res = await fetch("https://api.notion.com/v1/" + path, {
         method,
@@ -170,7 +182,6 @@ async function loadKnown() {
       if (typeof n === "number" && n > maxNr) maxNr = n;
     }
     cursor = r.has_more ? r.next_cursor : null;
-    await sleep(350);
   } while (cursor);
 }
 
@@ -256,22 +267,28 @@ function releasePending() {
   pump();
 }
 
+// Tre opslag sendes ad gangen; rateGate sørger for, at Notions grænse holdes.
+const NOTION_WORKERS = 3;
+
 async function pump() {
   if (processing) return;
   processing = true;
-  while (queue.length) {
-    const p = queue.shift();
-    try {
-      await uploadPost(p);
-      stats.uploaded++;
-    } catch (e) {
-      stats.errors++;
-      known.delete(p.id);
-      await log(`Fejl ved nr. ${p.nr} (${p.url}): ${e.message}`);
+  const worker = async () => {
+    while (queue.length) {
+      const p = queue.shift();
+      try {
+        await uploadPost(p);
+        stats.uploaded++;
+      } catch (e) {
+        stats.errors++;
+        known.delete(p.id);
+        await log(`Fejl ved nr. ${p.nr} (${p.url}): ${e.message}`);
+      }
+      setStatus();
     }
-    await setStatus();
-    await sleep(350);
-  }
+  };
+  await Promise.all(Array.from({ length: NOTION_WORKERS }, worker));
+  await setStatus();
   processing = false;
   maybeFinish();
 }
