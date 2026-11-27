@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
- * Version: 0.4.3
+ * Version: 0.4.4
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.4.3';
+const LF_VERSION = '0.4.4';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -861,6 +861,16 @@ function lf_render_dashboard() {
   .del { background:none; border:0; color:#d14b4b; cursor:pointer; font-size:18px; padding-top:4px; }
   .primary { background:var(--accent); color:var(--accent-ink); border:0; border-radius:8px; padding:7px 14px; cursor:pointer; font-weight:600; }
   .hint { color:var(--muted); font-size:12.5px; }
+  /* Forhåndsvisning ved mouse over */
+  #pop { position:fixed; z-index:20; width:min(420px, calc(100vw - 20px)); max-height:min(70vh, 560px); overflow:auto; background:var(--surface);
+         border:1px solid var(--line); border-radius:10px; box-shadow:0 12px 34px rgba(0,0,0,.22); padding:14px 18px 16px; cursor:pointer; }
+  #pop .by { font-weight:650; font-size:15px; }
+  #pop .when { color:var(--muted); font-size:12.5px; margin-top:1px; }
+  #pop .text { font:15px/1.55 var(--read); white-space:pre-wrap; word-wrap:break-word; margin-top:10px; }
+  #pop img { width:100%; border-radius:6px; margin-top:10px; display:block; }
+  #pop .ptags { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:10px; font-size:12px; color:var(--muted); }
+  #pop .ptags span { display:inline-flex; align-items:center; gap:5px; }
+  #pop .hint { margin-top:10px; font-size:12px; color:var(--faint); }
   #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--page); padding:8px 14px; border-radius:8px; display:none; z-index:30; }
 
   /* Smalle skærme */
@@ -942,6 +952,7 @@ function lf_render_dashboard() {
   </div>
   <div class="dlg-f"><span class="hint" id="dlgMsg" style="margin-right:auto"></span><button class="primary" id="dlgSave">Gem og opdater automatiske tags</button></div>
 </dialog>
+<div id="pop" hidden></div>
 <div id="toast" role="status"></div>
 
 <script id="lf-data" type="application/json"><?php echo $json; ?></script>
@@ -1101,6 +1112,8 @@ function lf_render_dashboard() {
       el.innerHTML = itemHtml(p);
       el.onclick = () => openPost(p);
       el.onkeydown = (e) => { if (e.key === 'Enter') openPost(p); };
+      el.onmouseenter = () => popWant(p, el);
+      el.onmouseleave = popLeave;
       frag.appendChild(el);
     });
     rendered += PAGE;
@@ -1142,7 +1155,50 @@ function lf_render_dashboard() {
   }
 
   /* ---------- Læsepanel ---------- */
+  /* ---------- Forhåndsvisning ved mouse over ---------- */
+  // Kun med mus, og kun når læsepanelet er lukket. Vises efter et halvt sekund.
+  const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const pop = $('pop');
+  let popShowTimer, popHideTimer, popPost = null;
+
+  function popWant(p, el) {
+    if (!canHover || st.open) return;
+    clearTimeout(popHideTimer); clearTimeout(popShowTimer);
+    popShowTimer = setTimeout(() => popShow(p, el), popPost ? 150 : 500);
+  }
+  function popLeave() {
+    clearTimeout(popShowTimer);
+    clearTimeout(popHideTimer);
+    popHideTimer = setTimeout(popHide, 220);
+  }
+  function popHide() {
+    clearTimeout(popShowTimer); clearTimeout(popHideTimer);
+    pop.hidden = true; popPost = null;
+  }
+  function popShow(p, el) {
+    if (st.open || !el.isConnected) return;
+    popPost = p;
+    pop.innerHTML = `<div class="by">${esc(p.a || 'Ukendt')}</div>
+      <div class="when">${p.d ? fmt(p.d, true) : 'Dato ukendt'}</div>
+      <div class="text">${highlight(p.t)}</div>
+      ${p.i ? `<img src="${esc(p.i)}" alt="">` : ''}
+      ${p.g.length ? `<div class="ptags">${p.g.map((g) => `<span><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('')}</div>` : ''}
+      <div class="hint">Klik for at åbne opslaget</div>`;
+    pop.hidden = false; pop.scrollTop = 0;
+    // Ved siden af kortet (højre, ellers venstre), inden for vinduet
+    const r = el.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, gap = 10, vw = innerWidth, vh = innerHeight;
+    let left = r.right + gap;
+    if (left + w > vw - gap) left = r.left - w - gap;
+    if (left < gap) left = Math.max(gap, Math.min(vw - w - gap, r.left + (r.width - w) / 2));
+    const top = Math.max(gap, Math.min(vh - h - gap, r.top));
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  }
+  pop.onmouseenter = () => clearTimeout(popHideTimer);
+  pop.onmouseleave = popLeave;
+  pop.onclick = () => { const p = popPost; popHide(); if (p) openPost(p); };
+
   function openPost(p) {
+    popHide();
     st.open = p;
     $('app').classList.add('reading');
     document.querySelectorAll('.item.on').forEach((e) => e.classList.remove('on'));
@@ -1284,12 +1340,13 @@ function lf_render_dashboard() {
   document.addEventListener('keydown', (e) => {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
     if (e.key === '/' && !typing) { e.preventDefault(); $('q').focus(); return; }
-    if (e.key === 'Escape') { if ($('dlg').open) return; if (typing) { document.activeElement.blur(); return; } closeReader(); return; }
+    if (e.key === 'Escape') { if (!pop.hidden) { popHide(); return; } if ($('dlg').open) return; if (typing) { document.activeElement.blur(); return; } closeReader(); return; }
     if (typing || $('dlg').open) return;
     if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); step(1); }
     if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); step(-1); }
   });
 
+  $('scroll').addEventListener('scroll', popHide, { passive: true });
   let resizeTimer;
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(fitAll, 150); });
 

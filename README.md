@@ -18,6 +18,7 @@ Af Kenneth Hansen, 2026.
 - Opslagene gemmes i en tabel i WordPress-databasen, og billederne gemmes som WebP i `wp-content/uploads/linkedfetch`.
 - Dashboardet ligger på `https://keha.dk/linkedfetch` og kan kun ses af administratorer, der er logget ind.
 - Tre kolonner: filtre til venstre, en kompakt liste (eller gitter) i midten og et læsepanel til højre med hele opslaget, billede og tag-redigering.
+- Hold musen stille over et kort i et halvt sekund for at se hele opslaget i en popup (kun med mus, og ikke når læsepanelet er åbent). Klik åbner opslaget i læsepanelet.
 - Følger systemets lyse eller mørke tema. Tastatur: / søger, pil op/ned (eller j/k) skifter opslag, Esc lukker.
 - Filtre: søgning, forfatter, opslagsdato (faste perioder eller egne datoer), tags (et af / alle), uden tags og kun med billede.
 - Tags: 18 standard-tags sættes automatisk ud fra nøgleord i teksten. Du kan selv sætte tags på hvert kort, oprette nye tags og rette navne, farver og nøgleord under "Administrer tags". Opslag, du selv har tagget, røres ikke af de automatiske tags.
