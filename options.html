@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<title>LinkedIn til Notion</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1d1d1f; }
+  h1 { font-size: 1.4rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.05rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .3rem; }
+  label { display: block; font-weight: 600; margin-top: .8rem; }
+  input[type=text], input[type=password] { width: 100%; padding: .5rem; font: inherit; box-sizing: border-box; }
+  button { font: inherit; padding: .5rem .9rem; margin: .6rem .4rem 0 0; cursor: pointer; border-radius: 6px; border: 1px solid #888; background: #f5f5f5; }
+  button.primary { background: #0a66c2; color: #fff; border-color: #0a66c2; }
+  button:hover:not(:disabled) { filter: brightness(0.93); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .7; cursor: default; }
+  .muted { color: #666; font-size: .9rem; }
+  #status { background: #f3f6f9; padding: .7rem; border-radius: 6px; margin-top: .8rem; }
+  textarea { width: 100%; height: 220px; font: 12px/1.4 ui-monospace, monospace; box-sizing: border-box; }
+  #setupMsg { margin-top: .5rem; }
+  .ok { color: #1a7f37; } .err { color: #b42318; }
+</style>
+</head>
+<body>
+<h1>LinkedIn til Notion</h1>
+<p class="muted">Kopierer dine gemte LinkedIn-opslag til en Notion-database. Af Kenneth Hansen. Version <span id="version"></span></p>
+
+<h2>1. Forbindelse til Notion</h2>
+<label for="token">Notion-nøgle (Internal Integration Secret)</label>
+<input id="token" type="password" placeholder="ntn_... eller secret_...">
+<label for="pageUrl">Link til den Notion-side, databasen skal ligge under</label>
+<input id="pageUrl" type="text" placeholder="https://www.notion.so/...">
+<button id="setup" class="primary">Gem og opret database</button>
+<div id="setupMsg"></div>
+
+<h2>2. Hent opslag</h2>
+<p class="muted">Vær logget ind på LinkedIn i denne Chrome. Ved fuld hentning åbnes LinkedIn i en ny fane. Lad fanen være forrest, til den er færdig.</p>
+<button id="full" class="primary">Hent alle gemte opslag</button>
+<button id="new">Tjek for nye nu</button>
+<button id="stop">Stop</button>
+<div id="status">Ingen kørsel i gang.</div>
+
+<h2>3. Automatisk</h2>
+<label style="font-weight:400"><input type="checkbox" id="auto"> Tjek for nye gemte opslag én gang i døgnet (kun når Chrome er åben)</label>
+
+<h2>Log</h2>
+<textarea id="log" readonly></textarea>
+
+<h2>Fejlsøgning</h2>
+<p class="muted">Hvis der ikke kommer noget med, så kør en diagnose og send resultatet til Claude.</p>
+<button id="capture" class="primary">Opsnap LinkedIns datakald</button>
+<button id="diag">Kør diagnose</button>
+<button id="copyDiag">Kopiér diagnose</button>
+<textarea id="diagOut" readonly style="height:160px"></textarea>
+
+<script src="options.js"></script>
+</body>
+</html>
