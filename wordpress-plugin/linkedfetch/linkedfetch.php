@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
- * Version: 0.4.2
+ * Version: 0.4.3
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.4.2';
+const LF_VERSION = '0.4.3';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -818,7 +818,7 @@ function lf_render_dashboard() {
   .ex { color:var(--muted); margin-top:3px; display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden; -webkit-line-clamp:2; height:2.9em; line-height:1.45; }
   .grid .ex { -webkit-line-clamp:3; height:4.35em; }
   .tagline { display:flex; gap:10px; flex-wrap:nowrap; overflow:hidden; margin-top:6px; height:18px; line-height:18px; font-size:12px; color:var(--muted); }
-  .tagline span { display:inline-flex; align-items:center; gap:5px; min-width:0; flex:0 1 auto; }
+  .tagline span { display:inline-flex; align-items:center; gap:5px; flex:none; }
   .tagline span em { font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .tagline .more { flex:none; }
   mark { background:var(--mark); color:inherit; border-radius:2px; }
@@ -1050,9 +1050,8 @@ function lf_render_dashboard() {
       const chips = p.g.map((g) => `<span class="chip" title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('');
       return `<div class="media">${img}<div class="ovtags">${chips}</div></div><div class="body">${who}</div>`;
     }
-    const first = p.g.slice(0, 3), rest = p.g.length - first.length;
-    // Tag-linjen er altid med (også tom), så kortene får samme højde
-    const tags = `<div class="tagline">${first.map((g) => `<span title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i><em>${esc(g)}</em></span>`).join('')}${rest > 0 ? `<span class="more" title="${esc(p.g.slice(first.length).join(', '))}">+${rest}</span>` : ''}</div>`;
+    // Tag-linjen er altid med (også tom), så kortene får samme højde. fitTags() fjerner dem, der ikke kan være på linjen.
+    const tags = `<div class="tagline">${p.g.map((g) => `<span class="tg" title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i><em>${esc(g)}</em></span>`).join('')}</div>`;
     return `<div>${who}${tags}</div>${img}`;
   }
 
@@ -1073,7 +1072,25 @@ function lf_render_dashboard() {
       more.title = chips.slice(n).map((c) => c.title).join(', ');
     } while (n > 1 && box.scrollHeight > box.clientHeight);
   }
-  function fitAll() { document.querySelectorAll('#out.grid .item').forEach(fitChips); }
+  // Liste: så mange tags som kan være på én linje, resten som "+n"
+  function fitTags(el) {
+    const box = el.querySelector('.tagline');
+    if (!box || !box.children.length) return;
+    const tags = [...box.querySelectorAll('.tg')];
+    tags.forEach((t) => { t.hidden = false; });
+    box.querySelectorAll('.more').forEach((m) => m.remove());
+    if (box.scrollWidth <= box.clientWidth) return;
+    const more = document.createElement('span'); more.className = 'more';
+    box.appendChild(more);
+    let n = tags.length;
+    do {
+      tags[--n].hidden = true;
+      more.textContent = '+' + (tags.length - n);
+      more.title = tags.slice(n).map((t) => t.title).join(', ');
+    } while (n > 1 && box.scrollWidth > box.clientWidth);
+  }
+  const fit = (el) => (st.view === 'grid' ? fitChips(el) : fitTags(el));
+  function fitAll() { document.querySelectorAll('#out .item').forEach(fit); }
 
   function renderMore() {
     const frag = document.createDocumentFragment();
@@ -1089,7 +1106,7 @@ function lf_render_dashboard() {
     rendered += PAGE;
     const added = [...frag.children];
     $('out').appendChild(frag);
-    if (st.view === 'grid') added.forEach(fitChips);
+    added.forEach(fit);
   }
 
   function renderSummary() {
@@ -1210,7 +1227,7 @@ function lf_render_dashboard() {
 
   function afterTagChange(p) {
     const el = document.querySelector(`.item[data-id="${CSS.escape(p.id)}"]`);
-    if (el) { el.innerHTML = itemHtml(p); if (st.view === 'grid') fitChips(el); }
+    if (el) { el.innerHTML = itemHtml(p); fit(el); }
     renderSide(); renderReader();
   }
 
