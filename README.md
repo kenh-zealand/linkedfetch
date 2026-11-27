@@ -224,7 +224,7 @@ Sådan sætter du det op:
 2. Tilføj keha.dk som connector i Claude (se vejledningen i KEHA MCP).
 3. Har du forbundet før, så afbryd og forbind igen, eller start en ny chat, så Claude ser de nye værktøjer.
 
-Under **Indstillinger → KEHA MCP** i WordPress kan du se, om værktøjerne er med. Med LinkedFetch 0.4.0+ og KEHA MCP 0.4.0+ står der **Værktøjer (32)**.
+Under **Indstillinger → KEHA MCP** i WordPress kan du se, om værktøjerne er med. Med LinkedFetch 0.4.0+ og KEHA MCP 0.5.0 står der **Værktøjer (35)** (med KEHA MCP 0.4.0: 32).
 
 Uden KEHA MCP virker pluginet og dashboardet helt som normalt.
 
@@ -263,7 +263,7 @@ Dine indstillinger (adresse, brugernavn og applikationsadgangskode) bevares.
 | Der kommer ingen opslag med | LinkedIn kan have ændret sit datakald. Klik **Opsnap LinkedIns datakald** under *Fejlsøgning* i indstillingerne, klik **Kopiér diagnose**, og send resultatet til den, der vedligeholder udvidelsen |
 | Billeder mangler på nogle opslag | Kør **Hent alle gemte opslag** igen. Manglende billeder udfyldes |
 | Delt artikel uden link | Linket kunne ikke findes på opslagets side. Boksen peger i stedet på opslaget på LinkedIn |
-| Claude kan ikke se LinkedFetch-værktøjerne | Tjek **Indstillinger → KEHA MCP** (skal vise 32 værktøjer). Afbryd og forbind keha.dk i Claude igen, og start en ny chat |
+| Claude kan ikke se LinkedFetch-værktøjerne | Tjek **Indstillinger → KEHA MCP** (skal vise 35 værktøjer med KEHA MCP 0.5.0). Afbryd og forbind keha.dk i Claude igen, og start en ny chat |
 | Den daglige kontrol kører ikke | Chrome skal være åben, og du skal være logget ind på LinkedIn. Fluebenet under **3. Automatisk** skal være sat |
 
 ## 12. Begrænsninger og forbehold
