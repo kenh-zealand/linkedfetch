@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
- * Version: 0.4.1
+ * Version: 0.4.2
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.4.1';
+const LF_VERSION = '0.4.2';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -800,6 +800,16 @@ function lf_render_dashboard() {
   /* Pladsholder, når opslaget ikke har billede, så alle kort er lige store */
   .thumb.ph { display:flex; align-items:center; justify-content:center; color:var(--faint); font-size:22px; font-weight:600; letter-spacing:.02em; }
   .list .thumb.ph { font-size:16px; }
+  /* Gitter: tags lagt hen over billedet (højst to linjer, resten som +n) */
+  .media { position:relative; }
+  .grid .thumb.ph { padding-bottom:28px; }
+  .ovtags { position:absolute; left:0; right:0; bottom:0; padding:22px 8px 8px; display:flex; flex-wrap:wrap; align-content:flex-start; gap:4px;
+            max-height:76px; overflow:hidden; background:linear-gradient(to top, rgba(10,15,20,.55), rgba(10,15,20,0)); pointer-events:none; }
+  .ovtags:empty { display:none; }
+  .chip { display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:2px 8px; border-radius:99px; font-size:11.5px; line-height:16px;
+          color:#fff; background:rgba(12,18,24,.78); backdrop-filter:blur(3px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip .dot { width:7px; height:7px; }
+  .chip.more { pointer-events:auto; }
   .item:hover { border-color:var(--line); }
   .item.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
   .who { display:flex; gap:8px; align-items:baseline; min-width:0; }
@@ -1031,15 +1041,39 @@ function lf_render_dashboard() {
   }
 
   function itemHtml(p) {
-    const first = p.g.slice(0, st.view === 'grid' ? 1 : 3), rest = p.g.length - first.length;
-    // Tag-linjen er altid med (også tom), så kortene får samme højde
-    const tags = `<div class="tagline">${first.map((g) => `<span title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i><em>${esc(g)}</em></span>`).join('')}${rest > 0 ? `<span class="more" title="${esc(p.g.slice(first.length).join(', '))}">+${rest}</span>` : ''}</div>`;
-    const head = `<div class="who"><b>${highlight(p.a || 'Ukendt')}</b><time datetime="${esc(p.d || '')}">${fmt(p.d)}</time></div>
-      <div class="ex">${highlight(excerpt(p.t))}</div>${tags}`;
     const initials = (p.a || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
     const img = p.i ? `<img class="thumb" loading="lazy" src="${esc(p.i)}" alt="">` : `<div class="thumb ph" aria-hidden="true">${esc(initials)}</div>`;
-    return st.view === 'grid' ? `${img}<div class="body">${head}</div>` : `<div>${head}</div>${img}`;
+    const who = `<div class="who"><b>${highlight(p.a || 'Ukendt')}</b><time datetime="${esc(p.d || '')}">${fmt(p.d)}</time></div>
+      <div class="ex">${highlight(excerpt(p.t))}</div>`;
+    if (st.view === 'grid') {
+      // Alle tags lægges på billedet; fitChips() fjerner dem, der ikke kan være på to linjer
+      const chips = p.g.map((g) => `<span class="chip" title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('');
+      return `<div class="media">${img}<div class="ovtags">${chips}</div></div><div class="body">${who}</div>`;
+    }
+    const first = p.g.slice(0, 3), rest = p.g.length - first.length;
+    // Tag-linjen er altid med (også tom), så kortene får samme højde
+    const tags = `<div class="tagline">${first.map((g) => `<span title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i><em>${esc(g)}</em></span>`).join('')}${rest > 0 ? `<span class="more" title="${esc(p.g.slice(first.length).join(', '))}">+${rest}</span>` : ''}</div>`;
+    return `<div>${who}${tags}</div>${img}`;
   }
+
+  // Fjerner tags fra billedet, til de kan være på to linjer, og samler resten i "+n"
+  function fitChips(el) {
+    const box = el.querySelector('.ovtags');
+    if (!box || !box.children.length) return;
+    const chips = [...box.querySelectorAll('.chip')];
+    chips.forEach((c) => { c.hidden = false; });
+    box.querySelectorAll('.more').forEach((m) => m.remove());
+    if (box.scrollHeight <= box.clientHeight) return;
+    const more = document.createElement('span'); more.className = 'chip more';
+    box.appendChild(more);
+    let n = chips.length;
+    do {
+      chips[--n].hidden = true;
+      more.textContent = '+' + (chips.length - n);
+      more.title = chips.slice(n).map((c) => c.title).join(', ');
+    } while (n > 1 && box.scrollHeight > box.clientHeight);
+  }
+  function fitAll() { document.querySelectorAll('#out.grid .item').forEach(fitChips); }
 
   function renderMore() {
     const frag = document.createDocumentFragment();
@@ -1053,7 +1087,9 @@ function lf_render_dashboard() {
       frag.appendChild(el);
     });
     rendered += PAGE;
+    const added = [...frag.children];
     $('out').appendChild(frag);
+    if (st.view === 'grid') added.forEach(fitChips);
   }
 
   function renderSummary() {
@@ -1174,7 +1210,7 @@ function lf_render_dashboard() {
 
   function afterTagChange(p) {
     const el = document.querySelector(`.item[data-id="${CSS.escape(p.id)}"]`);
-    if (el) el.innerHTML = itemHtml(p);
+    if (el) { el.innerHTML = itemHtml(p); if (st.view === 'grid') fitChips(el); }
     renderSide(); renderReader();
   }
 
@@ -1236,6 +1272,9 @@ function lf_render_dashboard() {
     if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); step(1); }
     if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); step(-1); }
   });
+
+  let resizeTimer;
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(fitAll, 150); });
 
   update();
 })();
