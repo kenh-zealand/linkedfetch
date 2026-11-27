@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre.
- * Version: 0.3.1
+ * Version: 0.3.2
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.3.1';
+const LF_VERSION = '0.3.2';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -603,7 +603,7 @@ function lf_render_dashboard() {
     <div class="bar">
       <div class="searchrow">
         <button class="iconbtn filterbtn" id="openSide">Filtre</button>
-        <input type="search" id="q" placeholder="Søg i opslag (tryk /)" aria-label="Søg i opslag">
+        <input type="search" id="q" placeholder="Søg i opslag" title="Genvej: tryk / for at hoppe hertil" aria-label="Søg i opslag">
         <select id="sort" aria-label="Sortering">
           <option value="nr">Senest gemt</option>
           <option value="date">Nyeste opslag</option>
@@ -916,7 +916,7 @@ function lf_render_dashboard() {
   $('imgOnly').addEventListener('change', (e) => { st.imgOnly = e.target.checked; update(); });
   $('sort').addEventListener('change', (e) => { st.sort = e.target.value; update(); });
   let timer;
-  $('q').addEventListener('input', (e) => { clearTimeout(timer); timer = setTimeout(() => { st.q = e.target.value.trim(); update(); }, 180); });
+  $('q').addEventListener('input', (e) => { clearTimeout(timer); timer = setTimeout(() => { st.q = e.target.value.trim().replace(/^\/+/, '').trim(); update(); }, 180); });
   document.querySelectorAll('.seg button').forEach((b) => b.onclick = () => { st.view = b.dataset.view; store.set('lf-view', st.view); update(); });
   $('openSide').onclick = () => $('side').classList.add('open');
   $('closeSide').onclick = () => $('side').classList.remove('open');
