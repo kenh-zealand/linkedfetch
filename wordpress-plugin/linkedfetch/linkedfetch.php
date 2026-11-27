@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
- * Version: 0.4.0
+ * Version: 0.4.1
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.4.0';
+const LF_VERSION = '0.4.1';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -791,22 +791,26 @@ function lf_render_dashboard() {
   /* Liste */
   .list .item { display:grid; grid-template-columns:minmax(0,1fr) 84px; gap:14px; padding:11px 12px; border-radius:8px;
                 cursor:pointer; border:1px solid transparent; background:var(--surface); margin-bottom:6px; }
-  .list .item.noimg { grid-template-columns:minmax(0,1fr); }
   .list .thumb { width:84px; height:64px; border-radius:6px; object-fit:cover; background:var(--raised); }
   /* Gitter */
-  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; align-items:start; }
-  .grid .item { background:var(--surface); border:1px solid transparent; border-radius:10px; overflow:hidden; cursor:pointer; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; align-items:stretch; }
+  .grid .item { background:var(--surface); border:1px solid transparent; border-radius:10px; overflow:hidden; cursor:pointer; display:flex; flex-direction:column; }
   .grid .thumb { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; background:var(--raised); }
   .grid .body { padding:10px 12px 12px; }
+  /* Pladsholder, når opslaget ikke har billede, så alle kort er lige store */
+  .thumb.ph { display:flex; align-items:center; justify-content:center; color:var(--faint); font-size:22px; font-weight:600; letter-spacing:.02em; }
+  .list .thumb.ph { font-size:16px; }
   .item:hover { border-color:var(--line); }
   .item.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
   .who { display:flex; gap:8px; align-items:baseline; min-width:0; }
   .who b { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .who time { color:var(--faint); font-size:12px; white-space:nowrap; margin-left:auto; }
-  .ex { color:var(--muted); margin-top:3px; display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden; -webkit-line-clamp:2; }
-  .grid .ex { -webkit-line-clamp:3; }
-  .tagline { display:flex; gap:4px 10px; flex-wrap:wrap; margin-top:6px; font-size:12px; color:var(--muted); }
-  .tagline span { display:inline-flex; align-items:center; gap:5px; }
+  .ex { color:var(--muted); margin-top:3px; display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden; -webkit-line-clamp:2; height:2.9em; line-height:1.45; }
+  .grid .ex { -webkit-line-clamp:3; height:4.35em; }
+  .tagline { display:flex; gap:10px; flex-wrap:nowrap; overflow:hidden; margin-top:6px; height:18px; line-height:18px; font-size:12px; color:var(--muted); }
+  .tagline span { display:inline-flex; align-items:center; gap:5px; min-width:0; flex:0 1 auto; }
+  .tagline span em { font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tagline .more { flex:none; }
   mark { background:var(--mark); color:inherit; border-radius:2px; }
 
   /* Højre: læsepanel */
@@ -1027,11 +1031,13 @@ function lf_render_dashboard() {
   }
 
   function itemHtml(p) {
-    const first = p.g.slice(0, 3), rest = p.g.length - first.length;
-    const tags = p.g.length ? `<div class="tagline">${first.map((g) => `<span><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('')}${rest > 0 ? `<span title="${esc(p.g.slice(3).join(', '))}">+${rest}</span>` : ''}</div>` : '';
+    const first = p.g.slice(0, st.view === 'grid' ? 1 : 3), rest = p.g.length - first.length;
+    // Tag-linjen er altid med (også tom), så kortene får samme højde
+    const tags = `<div class="tagline">${first.map((g) => `<span title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i><em>${esc(g)}</em></span>`).join('')}${rest > 0 ? `<span class="more" title="${esc(p.g.slice(first.length).join(', '))}">+${rest}</span>` : ''}</div>`;
     const head = `<div class="who"><b>${highlight(p.a || 'Ukendt')}</b><time datetime="${esc(p.d || '')}">${fmt(p.d)}</time></div>
       <div class="ex">${highlight(excerpt(p.t))}</div>${tags}`;
-    const img = p.i ? `<img class="thumb" loading="lazy" src="${esc(p.i)}" alt="">` : '';
+    const initials = (p.a || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+    const img = p.i ? `<img class="thumb" loading="lazy" src="${esc(p.i)}" alt="">` : `<div class="thumb ph" aria-hidden="true">${esc(initials)}</div>`;
     return st.view === 'grid' ? `${img}<div class="body">${head}</div>` : `<div>${head}</div>${img}`;
   }
 
@@ -1039,7 +1045,7 @@ function lf_render_dashboard() {
     const frag = document.createDocumentFragment();
     shown.slice(rendered, rendered + PAGE).forEach((p) => {
       const el = document.createElement('div');
-      el.className = 'item' + (p.i ? '' : ' noimg') + (st.open === p ? ' on' : '');
+      el.className = 'item' + (st.open === p ? ' on' : '');
       el.tabIndex = 0; el.dataset.id = p.id;
       el.innerHTML = itemHtml(p);
       el.onclick = () => openPost(p);
