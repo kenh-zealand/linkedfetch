@@ -148,6 +148,7 @@ async function setup(token, pageUrl) {
       Nr: { number: {} },
       Forfatter: { rich_text: {} },
       Link: { url: {} },
+      Dato: { date: {} },
       "Post-ID": { rich_text: {} },
       Hentet: { date: {} }
     }
@@ -156,19 +157,40 @@ async function setup(token, pageUrl) {
   return { databaseId: db.id, created: true };
 }
 
-// Tilføjer kolonnen "Nr" til en database, der er oprettet af en ældre version
-async function ensureNrColumn() {
-  const { databaseId } = await settings();
-  const db = await notion(`databases/${databaseId}`);
-  if (!db.properties?.Nr) {
-    await notion(`databases/${databaseId}`, "PATCH", { properties: { Nr: { number: {} } } });
-    await log('Kolonnen "Nr" er tilføjet i Notion.');
+// LinkedIns opslags-ID indeholder tidspunktet for opslaget (de øverste bits
+// er millisekunder siden 1970). Giver datoen som ÅÅÅÅ-MM-DD, eller null.
+function postDate(id) {
+  const digits = String(id || "").match(/(\d{15,})$/);
+  if (!digits) return null;
+  try {
+    const ms = Number(BigInt(digits[1]) >> 22n);
+    const d = new Date(ms);
+    if (ms < Date.UTC(2003, 0, 1) || ms > Date.now() + 86400000) return null;
+    return d.toLocaleDateString("sv-SE", { timeZone: "Europe/Copenhagen" });
+  } catch (_) {
+    return null;
   }
 }
+
+// Tilføjer kolonner, der mangler i en database fra en ældre version
+async function ensureColumns() {
+  const { databaseId } = await settings();
+  const db = await notion(`databases/${databaseId}`);
+  const add = {};
+  if (!db.properties?.Nr) add.Nr = { number: {} };
+  if (!db.properties?.Dato) add.Dato = { date: {} };
+  if (Object.keys(add).length) {
+    await notion(`databases/${databaseId}`, "PATCH", { properties: add });
+    await log(`Kolonne tilføjet i Notion: ${Object.keys(add).join(", ")}.`);
+  }
+}
+
+let missingDates = []; // eksisterende rækker uden dato: { pageId, start }
 
 async function loadKnown() {
   const { databaseId } = await settings();
   known = new Set();
+  missingDates = [];
   maxNr = 0;
   let cursor = null;
   do {
@@ -180,6 +202,10 @@ async function loadKnown() {
       if (t) known.add(t.trim());
       const n = p.properties?.Nr?.number;
       if (typeof n === "number" && n > maxNr) maxNr = n;
+      if (t && p.properties?.Dato && !p.properties.Dato.date) {
+        const start = postDate(t.trim());
+        if (start) missingDates.push({ pageId: p.id, start });
+      }
     }
     cursor = r.has_more ? r.next_cursor : null;
   } while (cursor);
@@ -232,6 +258,7 @@ async function uploadPost(p) {
         rich_text: p.author ? [{ type: "text", text: { content: p.author.slice(0, 200) } }] : []
       },
       Link: { url: p.url },
+      Dato: { date: postDate(p.id) ? { start: postDate(p.id) } : null },
       "Post-ID": { rich_text: [{ type: "text", text: { content: p.id } }] },
       Hentet: { date: { start: new Date().toISOString().slice(0, 10) } }
     },
@@ -263,8 +290,18 @@ function releasePending() {
     p.nr = ++maxNr;
     queue.push(p);
   }
+  // Rækker fra tidligere kørsler, der mangler dato, får den udfyldt bagefter
+  if (missingDates.length) {
+    log(`${missingDates.length} eksisterende rækker får udfyldt dato.`);
+    for (const m of missingDates) queue.push({ kind: "date", ...m });
+    missingDates = [];
+  }
   setStatus();
   pump();
+}
+
+async function setDate(item) {
+  await notion(`pages/${item.pageId}`, "PATCH", { properties: { Dato: { date: { start: item.start } } } });
 }
 
 // Tre opslag sendes ad gangen; rateGate sørger for, at Notions grænse holdes.
@@ -277,12 +314,17 @@ async function pump() {
     while (queue.length) {
       const p = queue.shift();
       try {
-        await uploadPost(p);
+        if (p.kind === "date") await setDate(p);
+        else await uploadPost(p);
         stats.uploaded++;
       } catch (e) {
         stats.errors++;
-        known.delete(p.id);
-        await log(`Fejl ved nr. ${p.nr} (${p.url}): ${e.message}`);
+        if (p.kind === "date") {
+          await log(`Fejl ved udfyldning af dato: ${e.message}`);
+        } else {
+          known.delete(p.id);
+          await log(`Fejl ved nr. ${p.nr} (${p.url}): ${e.message}`);
+        }
       }
       setStatus();
     }
@@ -374,7 +416,7 @@ async function startRun(mode) {
   await setStatus();
   try {
     await log(mode === "full" ? "Starter fuld hentning af alle gemte opslag." : "Tjekker for nye gemte opslag.");
-    await ensureNrColumn();
+    await ensureColumns();
     await loadKnown();
     await log(`${known.size} opslag ligger allerede i Notion (højeste Nr: ${maxNr}).`);
     // Fuld hentning åbnes i forgrunden, fordi Chrome bremser skjulte faner kraftigt.

@@ -9,6 +9,7 @@ Af Kenneth Hansen, 2026.
 - Åbner LinkedIns side "Gemte indlæg" i din egen Chrome, hvor du allerede er logget ind.
 - Læser hvert opslag: tekst, forfatter og link.
 - Opretter én side pr. opslag i Notion-databasen "LinkedIn – gemte opslag", med teksten som indhold.
+- Udfylder kolonnen "Dato" med datoen for opslaget (regnet ud fra opslagets ID).
 - Giver hvert opslag et løbenummer i kolonnen "Nr": det ældste gemte opslag er nr. 1, og nye får højere numre. Derfor læses hele listen på LinkedIn færdig, før der skrives til Notion.
 - Viser en statusskærm over LinkedIn-siden undervejs: antal gennemgået, fremskridt mod Notion og en færdig-besked med link til Notion.
 - Springer opslag over, der allerede ligger i Notion. Du kan derfor trygt køre den igen.

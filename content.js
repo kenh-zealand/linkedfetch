@@ -476,7 +476,7 @@
       $("detail").textContent = `${s.found || 0} nye, som ikke ligger i Notion endnu`;
     } else if (s.running) {
       $("num").textContent = `${s.uploaded} / ${total}`;
-      $("lbl").textContent = "opslag lagt i Notion";
+      $("lbl").textContent = "sendt eller opdateret i Notion";
       $("phase").textContent = "Sender til Notion…";
       $("fill").className = "fill";
       $("fill").style.width = Math.round((100 * s.uploaded) / Math.max(total, 1)) + "%";
