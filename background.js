@@ -68,20 +68,22 @@ async function rateGate() {
   if (slot > now) await sleep(slot - now);
 }
 
-async function notion(path, method = "GET", body) {
+// Filupload bruger den nyere API-version, som Notions dokumentation viser for upload.
+const NOTION_VERSION_FILES = "2026-03-11";
+
+async function notion(path, method = "GET", body, version = NOTION_VERSION) {
   const { token } = await settings();
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   for (let attempt = 0; attempt < 6; attempt++) {
     let res;
     await rateGate();
     try {
+      const headers = { Authorization: "Bearer " + token, "Notion-Version": version };
+      if (!isForm) headers["Content-Type"] = "application/json";
       res = await fetch("https://api.notion.com/v1/" + path, {
         method,
-        headers: {
-          Authorization: "Bearer " + token,
-          "Notion-Version": NOTION_VERSION,
-          "Content-Type": "application/json"
-        },
-        body: body ? JSON.stringify(body) : undefined
+        headers,
+        body: body ? (isForm ? body : JSON.stringify(body)) : undefined
       });
     } catch (e) {
       await sleep(2000 * (attempt + 1));
@@ -149,6 +151,7 @@ async function setup(token, pageUrl) {
       Forfatter: { rich_text: {} },
       Link: { url: {} },
       Dato: { date: {} },
+      Billede: { files: {} },
       "Post-ID": { rich_text: {} },
       Hentet: { date: {} }
     }
@@ -179,6 +182,7 @@ async function ensureColumns() {
   const add = {};
   if (!db.properties?.Nr) add.Nr = { number: {} };
   if (!db.properties?.Dato) add.Dato = { date: {} };
+  if (!db.properties?.Billede) add.Billede = { files: {} };
   if (Object.keys(add).length) {
     await notion(`databases/${databaseId}`, "PATCH", { properties: add });
     await log(`Kolonne tilføjet i Notion: ${Object.keys(add).join(", ")}.`);
@@ -186,11 +190,15 @@ async function ensureColumns() {
 }
 
 let missingDates = []; // eksisterende rækker uden dato: { pageId, start }
+let noImage = new Map(); // Post-ID -> pageId for eksisterende rækker uden billede
+let imageFills = []; // billeder, der skal sættes på eksisterende rækker
 
 async function loadKnown() {
   const { databaseId } = await settings();
   known = new Set();
   missingDates = [];
+  noImage = new Map();
+  imageFills = [];
   maxNr = 0;
   let cursor = null;
   do {
@@ -202,6 +210,9 @@ async function loadKnown() {
       if (t) known.add(t.trim());
       const n = p.properties?.Nr?.number;
       if (typeof n === "number" && n > maxNr) maxNr = n;
+      if (t && p.properties?.Billede && !(p.properties.Billede.files || []).length) {
+        noImage.set(t.trim(), p.id);
+      }
       if (t && p.properties?.Dato && !p.properties.Dato.date) {
         const start = postDate(t.trim());
         if (start) missingDates.push({ pageId: p.id, start });
@@ -232,8 +243,52 @@ function paragraph(content) {
   };
 }
 
+// ---------- Billeder ----------
+
+// Henter billedet fra LinkedIn og uploader det til Notion. Giver Notions fil-id.
+async function uploadImage(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`billedet kunne ikke hentes (${res.status})`);
+  const blob = await res.blob();
+  if (!blob.size || blob.size > 20 * 1024 * 1024) return null;
+  const type = blob.type || "image/jpeg";
+  const ext = { "image/png": "png", "image/gif": "gif", "image/webp": "webp" }[type] || "jpg";
+  const filename = `billede.${ext}`;
+  const up = await notion("file_uploads", "POST", { filename, content_type: type }, NOTION_VERSION_FILES);
+  const form = new FormData();
+  form.append("file", blob, filename);
+  await notion(`file_uploads/${up.id}/send`, "POST", form, NOTION_VERSION_FILES);
+  return { id: up.id, name: filename };
+}
+
+function imageProps(file) {
+  return {
+    cover: { type: "file_upload", file_upload: { id: file.id } },
+    properties: {
+      Billede: { files: [{ type: "file_upload", file_upload: { id: file.id }, name: file.name }] }
+    }
+  };
+}
+
+// Sætter billedet på en eksisterende side
+async function attachImage(pageId, file) {
+  await notion(`pages/${pageId}`, "PATCH", imageProps(file), NOTION_VERSION_FILES);
+}
+
+// Forsøger først at sætte billedet med det samme, når siden oprettes.
+// Afviser Notion det, sættes det i stedet bagefter.
+let inlineImages = true;
+
 async function uploadPost(p) {
   const { databaseId } = await settings();
+  let file = null;
+  if (p.image) {
+    try {
+      file = await uploadImage(p.image);
+    } catch (e) {
+      await log(`Billede til nr. ${p.nr} blev ikke gemt: ${e.message}`);
+    }
+  }
   const text = (p.text || "").trim();
   const oneLine = text.replace(/\s+/g, " ");
   const title =
@@ -249,7 +304,7 @@ async function uploadPost(p) {
   children.splice(98);
   children.push({ object: "block", type: "bookmark", bookmark: { url: p.url } });
 
-  await notion("pages", "POST", {
+  const page = {
     parent: { database_id: databaseId },
     properties: {
       Titel: { title: [{ type: "text", text: { content: title } }] },
@@ -263,7 +318,25 @@ async function uploadPost(p) {
       Hentet: { date: { start: new Date().toISOString().slice(0, 10) } }
     },
     children
-  });
+  };
+
+  if (!file) {
+    await notion("pages", "POST", page);
+    return;
+  }
+  if (inlineImages) {
+    const img = imageProps(file);
+    try {
+      await notion("pages", "POST", { ...page, cover: img.cover, properties: { ...page.properties, ...img.properties } });
+      return;
+    } catch (e) {
+      if (!/\b400\b/.test(e.message)) throw e;
+      inlineImages = false;
+      await log("Billeder sættes på i et ekstra trin (Notion afviste dem ved oprettelsen).");
+    }
+  }
+  const created = await notion("pages", "POST", page);
+  await attachImage(created.id, file);
 }
 
 // ---------- Kø ----------
@@ -274,6 +347,11 @@ function collect(posts) {
   for (const p of posts) {
     if (known.has(p.id)) {
       stats.skipped++;
+      // Eksisterende række uden billede får billedet, hvis LinkedIn har et
+      if (p.image && noImage.has(p.id)) {
+        imageFills.push({ kind: "image", pageId: noImage.get(p.id), image: p.image });
+        noImage.delete(p.id);
+      }
       continue;
     }
     known.add(p.id);
@@ -296,6 +374,11 @@ function releasePending() {
     for (const m of missingDates) queue.push({ kind: "date", ...m });
     missingDates = [];
   }
+  if (imageFills.length) {
+    log(`${imageFills.length} eksisterende rækker får billede.`);
+    queue.push(...imageFills);
+    imageFills = [];
+  }
   setStatus();
   pump();
 }
@@ -315,12 +398,15 @@ async function pump() {
       const p = queue.shift();
       try {
         if (p.kind === "date") await setDate(p);
-        else await uploadPost(p);
+        else if (p.kind === "image") {
+          const file = await uploadImage(p.image);
+          if (file) await attachImage(p.pageId, file);
+        } else await uploadPost(p);
         stats.uploaded++;
       } catch (e) {
         stats.errors++;
-        if (p.kind === "date") {
-          await log(`Fejl ved udfyldning af dato: ${e.message}`);
+        if (p.kind === "date" || p.kind === "image") {
+          await log(`Fejl ved udfyldning af ${p.kind === "date" ? "dato" : "billede"}: ${e.message}`);
         } else {
           known.delete(p.id);
           await log(`Fejl ved nr. ${p.nr} (${p.url}): ${e.message}`);

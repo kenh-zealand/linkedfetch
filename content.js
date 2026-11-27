@@ -310,6 +310,23 @@
       ? order.map((u) => byUrn.get(u)).filter(Boolean)
       : included.filter((i) => i.$type === "com.linkedin.voyager.dash.search.EntityResultViewModel");
 
+    // Billedlink: vælg en udgave på mindst 800 px bredde, ellers den største
+    function imageUrl(e) {
+      for (const a of e.entityEmbeddedObject?.image?.attributes || []) {
+        const d = a?.detailData || {};
+        const v = d.vectorImage;
+        if (v?.artifacts?.length) {
+          const arts = [...v.artifacts].sort((x, y) => (x.width || 0) - (y.width || 0));
+          const pick = arts.find((x) => (x.width || 0) >= 800) || arts[arts.length - 1];
+          const seg = pick.fileIdentifyingUrlPathSegment || "";
+          return seg.startsWith("http") ? seg : (v.rootUrl || "") + seg;
+        }
+        const direct = typeof d.imageUrl === "string" ? d.imageUrl : d.imageUrl?.url;
+        if (direct) return direct;
+      }
+      return null;
+    }
+
     const posts = [];
     for (const e of entities) {
       const id = (e.trackingUrn || "").match(ID_RE)?.[0] || (e.entityUrn || "").match(ID_RE)?.[0];
@@ -318,7 +335,8 @@
         id,
         url: `https://www.linkedin.com/feed/update/${id}/`,
         author: e.title?.text || "",
-        text: (e.summary?.text || "").trim()
+        text: (e.summary?.text || "").trim(),
+        image: imageUrl(e)
       });
     }
     return { posts, count: order.length || entities.length, token: coll?.metadata?.paginationToken || null };
@@ -370,7 +388,8 @@
         }
       }
       total += fresh.length;
-      if (newPosts.length) send({ type: "batch", posts: newPosts });
+      // Alle opslag sendes med, så eksisterende rækker kan få billede; baggrunden springer kendte over
+      if (fresh.length) send({ type: "batch", posts: fresh });
       send({ type: "progress", seen: total });
 
       if (mode === "new" && knownStreak >= 15) {

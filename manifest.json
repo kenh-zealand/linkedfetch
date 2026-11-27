@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "LinkedIn til Notion – gemte opslag",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Kopierer dine gemte LinkedIn-opslag til en Notion-database og tjekker dagligt for nye.",
   "author": "Kenneth Hansen",
   "permissions": ["storage", "alarms", "tabs", "scripting"],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "https://api.notion.com/*"
+    "https://api.notion.com/*",
+    "https://media.licdn.com/*"
   ],
   "background": {
     "service_worker": "background.js"
