@@ -1,6 +1,8 @@
 # LinkedFetch – gemte LinkedIn-opslag
 
-Chrome-udvidelse, der kopierer dine gemte LinkedIn-opslag til dit eget dashboard på keha.dk (WordPress-plugin) og/eller en Notion-database, og kan tjekke for nye én gang i døgnet.
+Chrome-udvidelse og WordPress-plugin, der kopierer dine gemte LinkedIn-opslag til dit eget dashboard på keha.dk og kan tjekke for nye én gang i døgnet.
+
+Fra udvidelsens version 1.0 sendes der kun til keha.dk. Notion-delen er fjernet; en eksisterende Notion-database bliver liggende, men opdateres ikke længere.
 
 Af Kenneth Hansen, 2026.
 
@@ -14,7 +16,7 @@ Af Kenneth Hansen, 2026.
 - Springer opslag over, der allerede er gemt. Du kan derfor trygt køre den igen.
 - Viser en statusskærm over LinkedIn-siden undervejs.
 
-### Destination 1: Dit eget dashboard (WordPress-pluginet LinkedFetch)
+### Dashboardet (WordPress-pluginet LinkedFetch)
 
 - Opslagene gemmes i en tabel i WordPress-databasen, og billederne gemmes som WebP i `wp-content/uploads/linkedfetch`.
 - Dashboardet ligger på `https://keha.dk/linkedfetch` og kan kun ses af administratorer, der er logget ind.
@@ -39,12 +41,6 @@ Værktøjerne kræver administrator og kan ikke ændre noget. De vises i MCP-ser
 
 Test: `php tests/abilities.php` kører værktøjerne mod en lille testdatabase.
 
-### Destination 2: Notion (valgfri)
-
-- Én side pr. opslag i databasen "LinkedIn – gemte opslag" med kolonnerne Titel, Nr, Forfatter, Link, Dato, Billede, Post-ID og Hentet.
-- Billedet uploades til Notion, så det ikke udløber.
-- Databasens overskrift viser tidspunktet for seneste opdatering.
-
 ## Opsætning
 
 ### A. WordPress-pluginet på keha.dk
@@ -56,10 +52,11 @@ Test: `php tests/abilities.php` kører værktøjerne mod en lille testdatabase.
 
 ### B. Chrome-udvidelsen
 
-1. Pak `linkedin-til-notion.zip` ud til en mappe, du beholder.
+1. Pak `linkedfetch-udvidelse.zip` ud til en mappe, du beholder.
 2. Skriv `chrome://extensions` i adresselinjen, slå **Udviklertilstand** til og klik **Indlæs upakket**. Vælg mappen med `manifest.json`.
-3. Klik på udvidelsens ikon. Under **1a** sætter du flueben i "Send opslag til keha.dk", udfylder brugernavn og applikationsadgangskode og klikker **Gem og test keha.dk**.
-4. Notion (**1b**) er valgfri. Fjern fluebenet, hvis du kun vil bruge keha.dk.
+3. Klik på udvidelsens ikon. Under **1** udfylder du brugernavn og applikationsadgangskode og klikker **Gem og test keha.dk**.
+
+Opdatering af en installeret udvidelse: læg de nye filer oven i den gamle mappe og klik på genindlæs-pilen under `chrome://extensions`. Indstillingerne bevares.
 
 ### C. Første kørsel
 
@@ -73,12 +70,11 @@ Test: `php tests/abilities.php` kører værktøjerne mod en lille testdatabase.
 - **Den daglige kørsel** sker kun, når Chrome er åben, og du er logget ind på LinkedIn.
 - **Billederne på keha.dk** ligger i en offentlig mappe med tilfældige filnavne. De kan ikke findes uden at kende navnet, men er ikke beskyttet med login. Teksterne kan kun ses via dashboardet.
 - **LinkedIns brugeraftale** forbyder automatisk indsamling. Udvidelsen henter kun dine egne gemte opslag, i roligt tempo, og når du selv starter den eller har slået den daglige kørsel til. Brugen er på eget ansvar.
-- **Notion-API'et:** Udvidelsen bruger version 2022-06-28 til sider og databaser og 2026-03-11 til upload af billeder.
 
 ## Filer
 
 - `manifest.json`, `background.js`, `content.js`, `hook.js`, `options.html`, `options.js` – Chrome-udvidelsen
 - `wordpress-plugin/linkedfetch/linkedfetch.php` – WordPress-pluginet (REST-API, dashboard og AI-værktøjer)
 - `dist/linkedfetch-plugin.zip` – færdigpakket plugin til upload i WordPress
-- `dist/linkedin-til-notion.zip` – Chrome-udvidelsen, klar til at pakke ud og indlæse
+- `dist/linkedfetch-udvidelse.zip` – Chrome-udvidelsen, klar til at pakke ud og indlæse
 - `tests/abilities.php` – test af AI-værktøjerne

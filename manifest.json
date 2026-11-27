@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "LinkedIn til Notion – gemte opslag",
-  "version": "0.10.0",
-  "description": "Kopierer dine gemte LinkedIn-opslag til Notion og/eller dit eget dashboard på keha.dk, og tjekker dagligt for nye.",
+  "name": "LinkedFetch – gemte LinkedIn-opslag",
+  "version": "1.0.0",
+  "description": "Kopierer dine gemte LinkedIn-opslag til dit eget dashboard på keha.dk (WordPress-pluginet LinkedFetch) og tjekker dagligt for nye.",
   "author": "Kenneth Hansen",
   "permissions": [
     "storage",
@@ -12,8 +12,6 @@
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "https://api.notion.com/*",
-    "https://media.licdn.com/*",
     "https://keha.dk/*",
     "https://www.keha.dk/*"
   ],
@@ -21,7 +19,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "LinkedIn til Notion"
+    "default_title": "LinkedFetch"
   },
   "options_page": "options.html"
 }

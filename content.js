@@ -1,12 +1,12 @@
-// LinkedIn til Notion – gemte opslag
+// LinkedFetch – gemte LinkedIn-opslag
 // Copyright (c) 2026 Kenneth Hansen
 //
 // Kører på LinkedIns side "Gemte indlæg". Læser opslagene, der vises,
 // og henter flere ved at trykke "Vis flere resultater" eller scrolle.
 
 (() => {
-  if (window.__liNotionSaver) return;
-  window.__liNotionSaver = true;
+  if (window.__linkedFetchSaver) return;
+  window.__linkedFetchSaver = true;
 
   const ID_RE = /urn:li:(?:activity|share|ugcPost):\d+/;
   const MORE_TEXT_RE = /^(…|\.\.\.)?\s*(mere|vis mere|se mere|more|see more|show more)$/i;
@@ -129,7 +129,7 @@
       send({ type: "progress", seen: total });
 
       if (mode === "new" && knownStreak >= 15) {
-        return send({ type: "done", reason: `Nåede til opslag, der allerede er i Notion (${total} gennemgået).` });
+        return send({ type: "done", reason: `Nåede til opslag, der allerede er på keha.dk (${total} gennemgået).` });
       }
       idleRounds = fresh.length ? 0 : idleRounds + 1;
       if (idleRounds >= 5) {
@@ -175,7 +175,7 @@
 
   const captured = [];
   window.addEventListener("message", (e) => {
-    if (e.source === window && e.data && e.data.__liNotionCapture) captured.push(e.data.rec);
+    if (e.source === window && e.data && e.data.__linkedFetchCapture) captured.push(e.data.rec);
   });
 
   // Kun ufarlige header-værdier tages med; resten vises kun som navne
@@ -469,7 +469,7 @@
       send({ type: "progress", seen: total });
 
       if (mode === "new" && knownStreak >= 15) {
-        return send({ type: "done", reason: `Nåede til opslag, der allerede er i Notion (${total} gennemgået).` });
+        return send({ type: "done", reason: `Nåede til opslag, der allerede er på keha.dk (${total} gennemgået).` });
       }
       emptyPages = fresh.length ? 0 : emptyPages + 1;
       if (!next || emptyPages >= 2) {
@@ -529,7 +529,7 @@
         .stop { margin-top:16px; }
       </style>
       <div class="bg"><div class="card">
-        <h1>LinkedIn til Notion</h1>
+        <h1>LinkedFetch</h1>
         <div class="ver">Version ${esc(chrome.runtime.getManifest().version)}</div>
         <div class="num" id="num">0</div>
         <div class="lbl" id="lbl">gemte opslag gennemgået</div>
@@ -539,8 +539,7 @@
         <div class="small" id="last"></div>
         <button class="stop" id="stop">Stop</button>
         <div class="btns" id="btns">
-          <a class="btn" id="dash" target="_blank" rel="noopener" hidden>Åbn dashboard</a>
-          <a class="btn" id="notion" target="_blank" rel="noopener">Åbn Notion</a>
+          <a class="btn" id="dash" target="_blank" rel="noopener">Åbn dashboard</a>
           <button id="close">Luk</button>
         </div>
       </div></div>`;
@@ -552,17 +551,14 @@
       overlay = null;
     };
     $("stop").onclick = () => chrome.runtime.sendMessage({ cmd: "stop" });
-    chrome.storage.local.get(["status", "log", "pageId", "kehaEnabled", "kehaUrl", "notionEnabled"]).then(renderOverlay);
+    chrome.storage.local.get(["status", "log", "kehaUrl"]).then(renderOverlay);
   }
 
   function renderOverlay(d) {
     if (!overlay) return;
     const { $ } = overlay;
-    if (d.pageId) $("notion").href = "https://www.notion.so/" + d.pageId.replace(/-/g, "");
-    if (d.notionEnabled === false || ("pageId" in d && !d.pageId)) $("notion").hidden = true;
-    if (d.kehaEnabled) {
+    if ("kehaUrl" in d || !$("dash").getAttribute("href")) {
       $("dash").href = (d.kehaUrl || "https://keha.dk").replace(/\/+$/, "") + "/linkedfetch";
-      $("dash").hidden = false;
     }
     if (d.log && d.log.length) $("last").textContent = d.log[d.log.length - 1].replace(/^\S+,\s*\S+\s+/, "");
     const s = d.status;
@@ -574,17 +570,17 @@
       $("phase").textContent = "Henter fra LinkedIn…";
       $("fill").className = "fill busy";
       $("fill").style.width = "";
-      $("detail").textContent = `${s.found || 0} nye, som ikke ligger i Notion endnu`;
+      $("detail").textContent = `${s.found || 0} nye, som ikke ligger på keha.dk endnu`;
     } else if (s.running) {
       $("num").textContent = `${s.uploaded} / ${total}`;
       $("lbl").textContent = "sendt eller opdateret";
-      $("phase").textContent = "Sender til Notion…";
+      $("phase").textContent = "Sender til keha.dk…";
       $("fill").className = "fill";
       $("fill").style.width = Math.round((100 * s.uploaded) / Math.max(total, 1)) + "%";
       $("detail").textContent = `${s.seen || 0} gennemgået på LinkedIn${s.errors ? `, ${s.errors} fejl` : ""}`;
     } else {
       $("num").textContent = s.uploaded || 0;
-      $("lbl").textContent = "nye opslag lagt i Notion";
+      $("lbl").textContent = "opslag sendt til keha.dk";
       $("phase").textContent = "Færdig";
       $("fill").className = "fill";
       $("fill").style.width = "100%";

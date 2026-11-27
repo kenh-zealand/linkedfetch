@@ -2,7 +2,7 @@
 <html lang="da">
 <head>
 <meta charset="utf-8">
-<title>LinkedIn til Notion</title>
+<title>LinkedFetch</title>
 <style>
   body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1d1d1f; }
   h1 { font-size: 1.4rem; margin-bottom: .2rem; }
@@ -17,17 +17,16 @@
   .muted { color: #666; font-size: .9rem; }
   #status { background: #f3f6f9; padding: .7rem; border-radius: 6px; margin-top: .8rem; }
   textarea { width: 100%; height: 220px; font: 12px/1.4 ui-monospace, monospace; box-sizing: border-box; }
-  #setupMsg { margin-top: .5rem; }
+  #kehaMsg { margin-top: .5rem; }
   .ok { color: #1a7f37; } .err { color: #b42318; }
 </style>
 </head>
 <body>
-<h1>LinkedIn til Notion</h1>
-<p class="muted">Kopierer dine gemte LinkedIn-opslag til en Notion-database. Af Kenneth Hansen. Version <span id="version"></span></p>
+<h1>LinkedFetch</h1>
+<p class="muted">Kopierer dine gemte LinkedIn-opslag til dit eget dashboard på keha.dk. Af Kenneth Hansen. Version <span id="version"></span></p>
 
-<h2>1a. Dit eget dashboard på keha.dk</h2>
+<h2>1. Forbindelse til keha.dk</h2>
 <p class="muted">Kræver WordPress-pluginet "LinkedFetch" på siden. Brug dit WordPress-brugernavn og en <b>applikationsadgangskode</b> (WordPress: Brugere → Profil → Applikationsadgangskoder), ikke din almindelige adgangskode.</p>
-<label style="font-weight:400"><input type="checkbox" id="kehaOn"> Send opslag til keha.dk</label>
 <label for="kehaUrl">Adresse på WordPress-siden</label>
 <input id="kehaUrl" type="text" placeholder="https://keha.dk">
 <label for="kehaUser">WordPress-brugernavn</label>
@@ -38,18 +37,9 @@
 <a id="kehaDash" href="https://keha.dk/linkedfetch" target="_blank" rel="noopener" style="margin-left:8px">Åbn dashboard</a>
 <div id="kehaMsg"></div>
 
-<h2>1b. Forbindelse til Notion</h2>
-<label style="font-weight:400"><input type="checkbox" id="notionOn" checked> Send opslag til Notion</label>
-<label for="token">Notion-nøgle (Internal Integration Secret)</label>
-<input id="token" type="password" placeholder="ntn_... eller secret_...">
-<label for="pageUrl">Link til den Notion-side, databasen skal ligge under</label>
-<input id="pageUrl" type="text" placeholder="https://www.notion.so/...">
-<button id="setup" class="primary">Gem og opret database</button>
-<div id="setupMsg"></div>
-
 <h2>2. Hent opslag</h2>
 <p class="muted">Vær logget ind på LinkedIn i denne Chrome. Ved fuld hentning åbnes LinkedIn i en ny fane. Lad fanen være forrest, til den er færdig.</p>
-<p class="muted">Delte artikler og links (titel, kilde og link) gemmes på keha.dk. Opslag, der blev hentet før version 0.10, får dem udfyldt ved en fuld hentning. Linket slås op på selve opslaget, så det tager et par sekunder pr. opslag med delt indhold.</p>
+<p class="muted">Delte artikler og links (titel, kilde og link) gemmes også. Opslag, der blev hentet før version 0.10, får dem udfyldt ved en fuld hentning. Linket slås op på selve opslaget, så det tager et par sekunder pr. opslag med delt indhold.</p>
 <button id="full" class="primary">Hent alle gemte opslag</button>
 <button id="new">Tjek for nye nu</button>
 <button id="stop">Stop</button>

@@ -1,18 +1,18 @@
-// LinkedIn til Notion – gemte opslag
+// LinkedFetch – gemte LinkedIn-opslag
 // Copyright (c) 2026 Kenneth Hansen
 //
 // Kører inde i LinkedIn-siden og noterer de datakald, siden selv laver,
 // så udvidelsen kan se, hvordan LinkedIn henter listen over gemte opslag.
 
 (() => {
-  if (window.__liNotionHook) return;
-  window.__liNotionHook = true;
+  if (window.__linkedFetchHook) return;
+  window.__linkedFetchHook = true;
 
   const isVoyager = (u) => /\/voyager\/api\//.test(u || "");
 
   function report(url, headers, body) {
     try {
-      window.postMessage({ __liNotionCapture: true, rec: { url: String(url), headers, body } }, "*");
+      window.postMessage({ __linkedFetchCapture: true, rec: { url: String(url), headers, body } }, "*");
     } catch (_) {}
   }
 

@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
- * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
+ * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen LinkedFetch og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
  * Version: 0.5.0
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
