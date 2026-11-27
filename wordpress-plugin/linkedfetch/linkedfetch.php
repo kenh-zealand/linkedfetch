@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre.
- * Version: 0.3.0
+ * Version: 0.3.1
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.3.0';
+const LF_VERSION = '0.3.1';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -417,6 +417,8 @@ function lf_render_dashboard() {
         'nonce' => wp_create_nonce('wp_rest'),
     ];
     $json = wp_json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
+    $user = wp_get_current_user();
+    $logout = wp_logout_url(home_url('/linkedfetch/'));
     ?><!DOCTYPE html>
 <html lang="da">
 <head>
@@ -466,6 +468,9 @@ function lf_render_dashboard() {
   .mode button.on { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
   .linkbtn { background:none; border:0; color:var(--accent); cursor:pointer; padding:4px 6px; font-size:13px; }
   .check { display:flex; gap:8px; align-items:center; padding:4px 6px; cursor:pointer; }
+  .account { margin-top:28px; padding-top:14px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; align-items:flex-start; color:var(--muted); font-size:13px; }
+  .account b { color:var(--ink); font-weight:600; }
+  .account .iconbtn { color:var(--ink); text-decoration:none; }
 
   /* Midten: resultater */
   .results { display:flex; flex-direction:column; min-width:0; height:100vh; }
@@ -587,6 +592,11 @@ function lf_render_dashboard() {
     <h2>Andet</h2>
     <label class="check"><input type="checkbox" id="imgOnly"> Kun med billede</label>
     <button class="linkbtn filterbtn" id="closeSide">Vis opslag</button>
+
+    <div class="account">
+      <span>Logget ind som <b><?php echo esc_html($user->display_name ?: $user->user_login); ?></b></span>
+      <a class="iconbtn" href="<?php echo esc_url($logout); ?>">Log ud</a>
+    </div>
   </aside>
 
   <section class="results">
