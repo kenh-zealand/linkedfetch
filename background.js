@@ -82,8 +82,11 @@ async function keha(path, method = "GET", body) {
   let res;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      // Ingen cookies: er man logget ind på keha.dk i samme Chrome, ville WordPress
+      // ellers bruge login-cookien (og afvise den) i stedet for applikationsadgangskoden.
       res = await fetch(`${kehaBase(s)}/wp-json/linkedfetch/v1/${path}`, {
         method,
+        credentials: "omit",
         headers: { Authorization: "Basic " + auth, "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined
       });
