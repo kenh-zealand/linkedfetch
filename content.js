@@ -310,14 +310,14 @@
       ? order.map((u) => byUrn.get(u)).filter(Boolean)
       : included.filter((i) => i.$type === "com.linkedin.voyager.dash.search.EntityResultViewModel");
 
-    // Billedlink: vælg en udgave på mindst 800 px bredde, ellers den største
+    // Billedlink: vælg en udgave på mindst 480 px bredde (lavformat), ellers den største
     function imageUrl(e) {
       for (const a of e.entityEmbeddedObject?.image?.attributes || []) {
         const d = a?.detailData || {};
         const v = d.vectorImage;
         if (v?.artifacts?.length) {
           const arts = [...v.artifacts].sort((x, y) => (x.width || 0) - (y.width || 0));
-          const pick = arts.find((x) => (x.width || 0) >= 800) || arts[arts.length - 1];
+          const pick = arts.find((x) => (x.width || 0) >= 480) || arts[arts.length - 1];
           const seg = pick.fileIdentifyingUrlPathSegment || "";
           return seg.startsWith("http") ? seg : (v.rootUrl || "") + seg;
         }
@@ -463,6 +463,7 @@
         <div class="small" id="last"></div>
         <button class="stop" id="stop">Stop</button>
         <div class="btns" id="btns">
+          <a class="btn" id="dash" target="_blank" rel="noopener" hidden>Åbn dashboard</a>
           <a class="btn" id="notion" target="_blank" rel="noopener">Åbn Notion</a>
           <button id="close">Luk</button>
         </div>
@@ -475,13 +476,18 @@
       overlay = null;
     };
     $("stop").onclick = () => chrome.runtime.sendMessage({ cmd: "stop" });
-    chrome.storage.local.get(["status", "log", "pageId"]).then(renderOverlay);
+    chrome.storage.local.get(["status", "log", "pageId", "kehaEnabled", "kehaUrl", "notionEnabled"]).then(renderOverlay);
   }
 
   function renderOverlay(d) {
     if (!overlay) return;
     const { $ } = overlay;
     if (d.pageId) $("notion").href = "https://www.notion.so/" + d.pageId.replace(/-/g, "");
+    if (d.notionEnabled === false || ("pageId" in d && !d.pageId)) $("notion").hidden = true;
+    if (d.kehaEnabled) {
+      $("dash").href = (d.kehaUrl || "https://keha.dk").replace(/\/+$/, "") + "/linkedfetch";
+      $("dash").hidden = false;
+    }
     if (d.log && d.log.length) $("last").textContent = d.log[d.log.length - 1].replace(/^\S+,\s*\S+\s+/, "");
     const s = d.status;
     if (!s) return;
@@ -495,7 +501,7 @@
       $("detail").textContent = `${s.found || 0} nye, som ikke ligger i Notion endnu`;
     } else if (s.running) {
       $("num").textContent = `${s.uploaded} / ${total}`;
-      $("lbl").textContent = "sendt eller opdateret i Notion";
+      $("lbl").textContent = "sendt eller opdateret";
       $("phase").textContent = "Sender til Notion…";
       $("fill").className = "fill";
       $("fill").style.width = Math.round((100 * s.uploaded) / Math.max(total, 1)) + "%";

@@ -24,8 +24,39 @@ function render(data) {
 }
 
 chrome.storage.local
-  .get(["token", "pageId", "databaseId", "autoDaily", "log", "status", "diagnose"])
-  .then(render);
+  .get(["token", "pageId", "databaseId", "autoDaily", "log", "status", "diagnose",
+        "notionEnabled", "kehaEnabled", "kehaUrl", "kehaUser", "kehaPass"])
+  .then((d) => {
+    render(d);
+    $("notionOn").checked = d.notionEnabled !== false;
+    $("kehaOn").checked = !!d.kehaEnabled;
+    $("kehaUrl").value = d.kehaUrl || "https://keha.dk";
+    $("kehaUser").value = d.kehaUser || "";
+    $("kehaPass").value = d.kehaPass || "";
+    $("kehaDash").href = $("kehaUrl").value.replace(/\/+$/, "") + "/linkedfetch";
+  });
+
+$("notionOn").onchange = (e) => chrome.runtime.sendMessage({ cmd: "setNotion", on: e.target.checked });
+
+async function saveKeha() {
+  $("kehaMsg").textContent = $("kehaOn").checked ? "Tester forbindelsen…" : "";
+  $("kehaDash").href = ($("kehaUrl").value.trim() || "https://keha.dk").replace(/\/+$/, "") + "/linkedfetch";
+  const r = await chrome.runtime.sendMessage({
+    cmd: "kehaSetup",
+    enabled: $("kehaOn").checked,
+    url: $("kehaUrl").value,
+    user: $("kehaUser").value,
+    pass: $("kehaPass").value
+  });
+  const esc = (s) => String(s).replace(/</g, "&lt;");
+  $("kehaMsg").innerHTML = !r?.ok
+    ? `<span class="err">${esc(r?.error || "Ukendt fejl")}</span>`
+    : r.disabled
+      ? '<span class="ok">Gemt. keha.dk er slået fra.</span>'
+      : `<span class="ok">Forbindelsen virker. ${r.count} opslag ligger på keha.dk.</span>`;
+}
+$("kehaSave").onclick = saveKeha;
+$("kehaOn").onchange = saveKeha;
 
 chrome.storage.onChanged.addListener((changes) => {
   const d = {};

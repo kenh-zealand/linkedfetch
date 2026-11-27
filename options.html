@@ -25,7 +25,21 @@
 <h1>LinkedIn til Notion</h1>
 <p class="muted">Kopierer dine gemte LinkedIn-opslag til en Notion-database. Af Kenneth Hansen. Version <span id="version"></span></p>
 
-<h2>1. Forbindelse til Notion</h2>
+<h2>1a. Dit eget dashboard på keha.dk</h2>
+<p class="muted">Kræver WordPress-pluginet "LinkedFetch" på siden. Brug dit WordPress-brugernavn og en <b>applikationsadgangskode</b> (WordPress: Brugere → Profil → Applikationsadgangskoder), ikke din almindelige adgangskode.</p>
+<label style="font-weight:400"><input type="checkbox" id="kehaOn"> Send opslag til keha.dk</label>
+<label for="kehaUrl">Adresse på WordPress-siden</label>
+<input id="kehaUrl" type="text" placeholder="https://keha.dk">
+<label for="kehaUser">WordPress-brugernavn</label>
+<input id="kehaUser" type="text" autocomplete="off">
+<label for="kehaPass">Applikationsadgangskode</label>
+<input id="kehaPass" type="password" autocomplete="off" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx">
+<button id="kehaSave" class="primary">Gem og test keha.dk</button>
+<a id="kehaDash" href="https://keha.dk/linkedfetch" target="_blank" rel="noopener" style="margin-left:8px">Åbn dashboard</a>
+<div id="kehaMsg"></div>
+
+<h2>1b. Forbindelse til Notion</h2>
+<label style="font-weight:400"><input type="checkbox" id="notionOn" checked> Send opslag til Notion</label>
 <label for="token">Notion-nøgle (Internal Integration Secret)</label>
 <input id="token" type="password" placeholder="ntn_... eller secret_...">
 <label for="pageUrl">Link til den Notion-side, databasen skal ligge under</label>

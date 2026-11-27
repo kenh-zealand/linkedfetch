@@ -44,7 +44,7 @@ function setStatus() {
       running,
       mode: runMode,
       ...stats,
-      queued: queue.length,
+      queued: queue.length + kehaLeft,
       found: stats.found,
       updated: Date.now()
     }
@@ -54,7 +54,90 @@ function setStatus() {
 // ---------- Notion ----------
 
 async function settings() {
-  return chrome.storage.local.get(["token", "pageId", "databaseId", "autoDaily"]);
+  return chrome.storage.local.get([
+    "token", "pageId", "databaseId", "autoDaily",
+    "notionEnabled", "kehaEnabled", "kehaUrl", "kehaUser", "kehaPass"
+  ]);
+}
+
+// ---------- keha.dk (WordPress-pluginet LinkedFetch) ----------
+
+let runNotion = false;
+let runKeha = false;
+let kehaKnown = new Set();
+let kehaNoImage = new Set();
+let kehaMax = 0;
+let kehaPending = []; // nye opslag til keha.dk, nyeste først
+let kehaFills = []; // eksisterende opslag på keha.dk, der mangler billede
+let kehaBusy = false;
+let kehaLeft = 0;
+
+function kehaBase(s) {
+  return (s.kehaUrl || "https://keha.dk").trim().replace(/\/+$/, "");
+}
+
+async function keha(path, method = "GET", body) {
+  const s = await settings();
+  const auth = btoa(unescape(encodeURIComponent(`${s.kehaUser}:${(s.kehaPass || "").replace(/\s+/g, "")}`)));
+  let res;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      res = await fetch(`${kehaBase(s)}/wp-json/linkedfetch/v1/${path}`, {
+        method,
+        headers: { Authorization: "Basic " + auth, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      if (res.status < 500) break;
+    } catch (e) {
+      if (attempt === 2) throw new Error("keha.dk kunne ikke nås: " + e.message);
+    }
+    await sleep(3000 * (attempt + 1));
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`keha.dk svarede ${res.status}: ${data.message || res.statusText}`);
+  return data;
+}
+
+async function loadKehaKnown() {
+  const r = await keha("ids");
+  kehaKnown = new Set(r.ids || []);
+  kehaNoImage = new Set(r.noImage || []);
+  kehaMax = r.maxNr || 0;
+  kehaPending = [];
+  kehaFills = [];
+  return r;
+}
+
+// Sender nye opslag (ældste først, med Nr) og manglende billeder til keha.dk i bundter
+async function sendKeha() {
+  kehaBusy = true;
+  // Egne kopier, så Notions nummerering ikke blandes sammen med keha.dk's
+  const ordered = kehaPending.reverse().map((p) => ({ ...p, nr: ++kehaMax }));
+  kehaPending = [];
+  const all = ordered.concat(kehaFills.map((p) => ({ ...p, nr: undefined })));
+  kehaFills = [];
+  kehaLeft = all.length;
+  if (all.length) {
+    await log(`keha.dk: ${ordered.length} nye opslag og ${all.length - ordered.length} manglende billeder sendes.`);
+  }
+  await setStatus();
+  for (let i = 0; i < all.length; i += 20) {
+    const chunk = all.slice(i, i + 20).map((p) => ({
+      id: p.id, url: p.url, author: p.author, text: p.text,
+      image: p.image || null, date: postDate(p.id), nr: p.nr
+    }));
+    try {
+      await keha("posts", "POST", { posts: chunk });
+      stats.uploaded += chunk.length;
+    } catch (e) {
+      stats.errors += chunk.length;
+      await log("Fejl ved afsendelse til keha.dk: " + e.message);
+    }
+    kehaLeft = Math.max(0, kehaLeft - chunk.length);
+    await setStatus();
+  }
+  kehaBusy = false;
+  maybeFinish();
 }
 
 // Notion tillader i gennemsnit omkring 3 kald i sekundet. Alle kald går
@@ -344,24 +427,43 @@ async function uploadPost(p) {
 // Nye opslag samles først; de nummereres og sendes til Notion,
 // når hele listen er gennemgået, så det ældste får det laveste nummer.
 function collect(posts) {
-  for (const p of posts) {
-    if (known.has(p.id)) {
-      stats.skipped++;
-      // Eksisterende række uden billede får billedet, hvis LinkedIn har et
-      if (p.image && noImage.has(p.id)) {
-        imageFills.push({ kind: "image", pageId: noImage.get(p.id), image: p.image });
-        noImage.delete(p.id);
+  if (runKeha) {
+    for (const p of posts) {
+      if (!kehaKnown.has(p.id)) {
+        kehaKnown.add(p.id);
+        kehaPending.push(p);
+      } else if (p.image && kehaNoImage.has(p.id)) {
+        kehaNoImage.delete(p.id);
+        kehaFills.push(p);
       }
-      continue;
     }
-    known.add(p.id);
-    pending.push(p);
   }
-  stats.found = pending.length;
+  if (runNotion) {
+    for (const p of posts) {
+      if (known.has(p.id)) {
+        stats.skipped++;
+        // Eksisterende række uden billede får billedet, hvis LinkedIn har et
+        if (p.image && noImage.has(p.id)) {
+          imageFills.push({ kind: "image", pageId: noImage.get(p.id), image: p.image });
+          noImage.delete(p.id);
+        }
+        continue;
+      }
+      known.add(p.id);
+      pending.push(p);
+    }
+  }
+  stats.found = Math.max(pending.length, kehaPending.length);
   setStatus();
 }
 
 function releasePending() {
+  if (runKeha) sendKeha();
+  if (!runNotion) {
+    setStatus();
+    maybeFinish();
+    return;
+  }
   const ordered = pending.reverse(); // ældste først
   pending = [];
   for (const p of ordered) {
@@ -437,10 +539,11 @@ async function stampDatabaseTitle() {
 }
 
 async function maybeFinish() {
-  if (!running || !scrapeDone || queue.length || processing) return;
-  await stampDatabaseTitle();
+  if (!running || !scrapeDone || queue.length || processing || kehaBusy) return;
+  if (runNotion) await stampDatabaseTitle();
+  const where = [runNotion && "Notion", runKeha && "keha.dk"].filter(Boolean).join(" og ");
   await log(
-    `Færdig. Gennemgået: ${stats.seen}, nye i Notion: ${stats.uploaded}, fejl: ${stats.errors}.`
+    `Færdig. Gennemgået: ${stats.seen}, sendt eller opdateret (${where}): ${stats.uploaded}, fejl: ${stats.errors}.`
   );
   if (runMode === "new" && runTabId != null) {
     try {
@@ -489,8 +592,10 @@ async function startRun(mode) {
     return;
   }
   const s = await settings();
-  if (!s.token || !s.databaseId) {
-    await log("Opsætningen mangler. Udfyld Notion-nøgle og side først.");
+  runNotion = s.notionEnabled !== false && !!(s.token && s.databaseId);
+  runKeha = !!(s.kehaEnabled && s.kehaUser && s.kehaPass);
+  if (!runNotion && !runKeha) {
+    await log("Ingen destination er sat op. Udfyld Notion eller keha.dk i indstillingerne.");
     return;
   }
   running = true;
@@ -498,16 +603,27 @@ async function startRun(mode) {
   runMode = mode;
   queue = [];
   pending = [];
+  known = new Set();
   stats = newStats();
   await setStatus();
   try {
     await log(mode === "full" ? "Starter fuld hentning af alle gemte opslag." : "Tjekker for nye gemte opslag.");
-    await ensureColumns();
-    await loadKnown();
-    await log(`${known.size} opslag ligger allerede i Notion (højeste Nr: ${maxNr}).`);
+    if (runNotion) {
+      await ensureColumns();
+      await loadKnown();
+      await log(`${known.size} opslag ligger allerede i Notion (højeste Nr: ${maxNr}).`);
+    }
+    if (runKeha) {
+      await loadKehaKnown();
+      await log(`${kehaKnown.size} opslag ligger allerede på keha.dk (højeste Nr: ${kehaMax}).`);
+    }
+    // Et opslag regnes kun som kendt, hvis det findes alle de steder, der sendes til
+    const knownAll = runNotion && runKeha
+      ? [...known].filter((id) => kehaKnown.has(id))
+      : runNotion ? [...known] : [...kehaKnown];
     // Fuld hentning åbnes i forgrunden, fordi Chrome bremser skjulte faner kraftigt.
     runTabId = await openSavedTab(mode === "full");
-    await chrome.tabs.sendMessage(runTabId, { cmd: "scrape", mode, known: [...known] });
+    await chrome.tabs.sendMessage(runTabId, { cmd: "scrape", mode, known: knownAll });
   } catch (e) {
     if (/Could not find database/i.test(e.message)) {
       await chrome.storage.local.remove("databaseId");
@@ -532,6 +648,8 @@ async function stopRun() {
     await log(`${pending.length} indsamlede opslag blev ikke sendt, så numrene ikke kommer i forkert rækkefølge.`);
   }
   pending = [];
+  kehaPending = [];
+  kehaFills = [];
   scrapeDone = true;
   await log("Stoppet af dig.");
   maybeFinish();
@@ -585,6 +703,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "capture":
           sendResponse({ ok: true, result: await captureCalls() });
           break;
+        case "kehaSetup": {
+          await chrome.storage.local.set({
+            kehaEnabled: !!msg.enabled,
+            kehaUrl: (msg.url || "https://keha.dk").trim(),
+            kehaUser: (msg.user || "").trim(),
+            kehaPass: (msg.pass || "").trim()
+          });
+          if (!msg.enabled) {
+            sendResponse({ ok: true, disabled: true });
+            break;
+          }
+          const r = await keha("ids");
+          await log(`Forbindelsen til keha.dk virker (plugin ${r.version}, ${(r.ids || []).length} opslag).`);
+          sendResponse({ ok: true, count: (r.ids || []).length, version: r.version });
+          break;
+        }
+        case "setNotion":
+          await chrome.storage.local.set({ notionEnabled: !!msg.on });
+          sendResponse({ ok: true });
+          break;
         case "setAuto":
           await chrome.storage.local.set({ autoDaily: !!msg.on });
           await ensureAlarm();
@@ -596,7 +734,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             running = true;
             runMode = runMode || "full";
             runTabId = sender.tab?.id ?? runTabId;
-            await loadKnown();
+            const s = await settings();
+            runNotion = s.notionEnabled !== false && !!(s.token && s.databaseId);
+            runKeha = !!(s.kehaEnabled && s.kehaUser && s.kehaPass);
+            if (runNotion) await loadKnown();
+            if (runKeha) await loadKehaKnown();
           }
           collect(msg.posts || []);
           sendResponse({ ok: true });
