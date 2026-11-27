@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
- * Version: 0.4.4
+ * Version: 0.4.5
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.4.4';
+const LF_VERSION = '0.4.5';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -867,6 +867,7 @@ function lf_render_dashboard() {
   #pop .by { font-weight:650; font-size:15px; }
   #pop .when { color:var(--muted); font-size:12.5px; margin-top:1px; }
   #pop .text { font:15px/1.55 var(--read); white-space:pre-wrap; word-wrap:break-word; margin-top:10px; }
+  .text a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; word-break:break-all; }
   #pop img { width:100%; border-radius:6px; margin-top:10px; display:block; }
   #pop .ptags { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:10px; font-size:12px; color:var(--muted); }
   #pop .ptags span { display:inline-flex; align-items:center; gap:5px; }
@@ -1044,6 +1045,27 @@ function lf_render_dashboard() {
     return safe.replace(re, '<mark>$1</mark>');
   }
 
+  // Hele teksten med klikbare links (http/https og www.). Tegnsætning lige efter et link hører ikke med.
+  function richText(text) {
+    const re = /\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+    let out = '', last = 0, m;
+    text = String(text ?? '');
+    while ((m = re.exec(text))) {
+      let url = m[0];
+      // Fjern tegnsætning til sidst; en afsluttende ")" bliver kun, hvis den lukker en "(" i linket
+      while (/[.,;:!?)\]}'»”]$/.test(url)) {
+        if (url.endsWith(')') && (url.match(/\(/g) || []).length >= (url.match(/\)/g) || []).length) break;
+        url = url.slice(0, -1);
+      }
+      out += highlight(text.slice(last, m.index));
+      const href = /^www\./i.test(url) ? 'https://' + url : url;
+      out += `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${highlight(url)}</a>`;
+      last = m.index + url.length;
+      re.lastIndex = last;
+    }
+    return out + highlight(text.slice(last));
+  }
+
   function excerpt(t) {
     const flat = t.replace(/\s+/g, ' ').trim();
     if (!st.q) return flat.slice(0, 320);
@@ -1180,7 +1202,7 @@ function lf_render_dashboard() {
     popPost = p;
     pop.innerHTML = `<div class="by">${esc(p.a || 'Ukendt')}</div>
       <div class="when">${p.d ? fmt(p.d, true) : 'Dato ukendt'}</div>
-      <div class="text">${highlight(p.t)}</div>
+      <div class="text">${richText(p.t)}</div>
       ${p.i ? `<img src="${esc(p.i)}" alt="">` : ''}
       ${p.g.length ? `<div class="ptags">${p.g.map((g) => `<span><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('')}</div>` : ''}
       <div class="hint">Klik for at åbne opslaget</div>`;
@@ -1195,7 +1217,7 @@ function lf_render_dashboard() {
   }
   pop.onmouseenter = () => clearTimeout(popHideTimer);
   pop.onmouseleave = popLeave;
-  pop.onclick = () => { const p = popPost; popHide(); if (p) openPost(p); };
+  pop.onclick = (e) => { if (e.target.closest('a')) { popHide(); return; } const p = popPost; popHide(); if (p) openPost(p); };
 
   function openPost(p) {
     popHide();
@@ -1234,7 +1256,7 @@ function lf_render_dashboard() {
       <div class="article">
         <p class="by">${esc(p.a || 'Ukendt')}</p>
         <div class="when">${p.d ? 'Opslået ' + fmt(p.d, true) : 'Dato ukendt'}${p.nr ? `, gemt som nr. ${p.nr}` : ''}</div>
-        <div class="text">${highlight(p.t)}</div>
+        <div class="text">${richText(p.t)}</div>
         ${p.i ? `<img src="${esc(p.i)}" alt="Billede fra opslaget">` : ''}
         <div class="tagedit">
           <h3>Tags</h3>
