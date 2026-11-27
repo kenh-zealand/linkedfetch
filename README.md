@@ -8,6 +8,7 @@ Af Kenneth Hansen, 2026.
 
 - Åbner LinkedIns side "Gemte indlæg" i din egen Chrome, hvor du allerede er logget ind, og henter opslagene via LinkedIns eget datakald (10 ad gangen).
 - Læser hvert opslag: tekst, forfatter, link og billede (480 px, lavformat).
+- Delt artikel eller link i et opslag: titel og kilde fra listen over gemte opslag, og selve linket fra opslagets side (kun for opslag med delt indhold, i roligt tempo). Gemmes på keha.dk og vises som en boks i læsepanelet og popup'en.
 - Udfylder datoen for opslaget (regnet ud fra opslagets ID).
 - Giver hvert opslag et løbenummer "Nr": det ældste gemte opslag er nr. 1, og nye får højere numre.
 - Springer opslag over, der allerede er gemt. Du kan derfor trygt køre den igen.
@@ -79,4 +80,5 @@ Test: `php tests/abilities.php` kører værktøjerne mod en lille testdatabase.
 - `manifest.json`, `background.js`, `content.js`, `hook.js`, `options.html`, `options.js` – Chrome-udvidelsen
 - `wordpress-plugin/linkedfetch/linkedfetch.php` – WordPress-pluginet (REST-API, dashboard og AI-værktøjer)
 - `dist/linkedfetch-plugin.zip` – færdigpakket plugin til upload i WordPress
+- `dist/linkedin-til-notion.zip` – Chrome-udvidelsen, klar til at pakke ud og indlæse
 - `tests/abilities.php` – test af AI-værktøjerne

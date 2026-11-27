@@ -331,18 +331,91 @@
     for (const e of entities) {
       const id = (e.trackingUrn || "").match(ID_RE)?.[0] || (e.entityUrn || "").match(ID_RE)?.[0];
       if (!id) continue;
+      // Delt artikel eller link: LinkedIn sender titel og kilde (fx "oneusefulthing.org"
+      // eller "Ove Christensen on LinkedIn"), men ikke selve linket
+      const emb = e.entityEmbeddedObject || {};
+      const shareTitle = (emb.title?.text || "").trim();
       posts.push({
         id,
         url: `https://www.linkedin.com/feed/update/${id}/`,
         author: e.title?.text || "",
         text: (e.summary?.text || "").trim(),
-        image: imageUrl(e)
+        image: imageUrl(e),
+        shareChecked: true,
+        shareTitle: shareTitle || null,
+        shareSource: shareTitle ? (emb.primarySubtitle?.text || "").trim() || null : null,
+        shareUrl: null
       });
     }
     return { posts, count: order.length || entities.length, token: coll?.metadata?.paginationToken || null };
   }
 
-  async function fastScrape(mode, known) {
+  // ---------- Link til delt indhold ----------
+  // Henter opslagssiden og finder linket: et /pulse/-link, når kilden er "… on LinkedIn",
+  // ellers et link til det domæne, der står som kilde. Ved flere muligheder vælges det,
+  // der bedst matcher titlen (og ellers det hyppigste).
+  async function shareLink(id, title, source) {
+    const res = await fetch(`/feed/update/${id}/`, { credentials: "include" });
+    if (!res.ok) return null;
+    const html = (await res.text())
+      .replace(/\x5cu002F/gi, "/").replace(/\\\//g, "/").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#61;/g, "=");
+    return pickShareLink(html, title, source);
+  }
+
+  function pickShareLink(html, title, source) {
+    const src = String(source || "").split("•")[0].trim().toLowerCase();
+    const words = String(title || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+      .split(/[^a-z0-9æøå]+/).filter((w) => w.length >= 4);
+    const counts = new Map();
+    let candidates;
+    if (/linkedin/.test(src) || !src.includes(".")) {
+      candidates = html.match(/https:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/pulse\/[A-Za-z0-9%_.~-]+/g) || [];
+    } else {
+      const domain = src.replace(/^www\./, "");
+      candidates = (html.match(/https?:\/\/[^\s"'<>\\)]+/g) || []).filter((u) => {
+        try {
+          const h = new URL(u).hostname.toLowerCase().replace(/^www\./, "");
+          return h === domain || h.endsWith("." + domain);
+        } catch (_) {
+          return false;
+        }
+      });
+    }
+    for (let u of candidates) {
+      u = u.replace(/[.,;:!?]+$/, "");
+      counts.set(u, (counts.get(u) || 0) + 1);
+    }
+    if (!counts.size) return null;
+    const score = (u) => {
+      let path;
+      try {
+        path = decodeURIComponent(new URL(u).pathname).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+      } catch (_) {
+        path = u.toLowerCase();
+      }
+      return words.filter((w) => path.includes(w)).length;
+    };
+    const best = [...counts.entries()].sort((a, b) => score(b[0]) - score(a[0]) || b[1] - a[1])[0][0];
+    return best.length <= 1000 ? best : null;
+  }
+
+  // Udfylder shareUrl for de opslag, der har delt indhold og skal sendes (nye eller mangler tjek)
+  async function resolveShareLinks(posts) {
+    for (const p of posts) {
+      if (stop) return;
+      try {
+        p.shareUrl = await shareLink(p.id, p.shareTitle, p.shareSource);
+      } catch (_) {
+        p.shareUrl = null;
+      }
+      linksDone++;
+      if (linksDone % 10 === 0) send({ type: "log", msg: `Links til delt indhold: ${linksDone} opslag tjekket.` });
+      await sleep(1200 + Math.random() * 800);
+    }
+  }
+  let linksDone = 0;
+
+  async function fastScrape(mode, known, needShare = new Set()) {
     const api = await learnApi();
 
     // Forsøg med 50 opslag pr. side. Accepterer LinkedIn det ikke,
@@ -388,6 +461,9 @@
         }
       }
       total += fresh.length;
+      // Delt indhold: linket slås kun op for nye opslag og dem, hvor keha.dk mangler det
+      await resolveShareLinks(fresh.filter((p) => p.shareTitle && (!known.has(p.id) || needShare.has(p.id))));
+      if (stop) break;
       // Alle opslag sendes med, så eksisterende rækker kan få billede; baggrunden springer kendte over
       if (fresh.length) send({ type: "batch", posts: fresh });
       send({ type: "progress", seen: total });
@@ -524,10 +600,11 @@
     renderOverlay(d);
   });
 
-  async function run(mode, knownArr) {
+  async function run(mode, knownArr, needShareArr) {
     showOverlay();
+    linksDone = 0;
     try {
-      await fastScrape(mode, new Set(knownArr || []));
+      await fastScrape(mode, new Set(knownArr || []), new Set(needShareArr || []));
     } catch (e) {
       send({ type: "log", msg: `Hurtig metode fejlede (${e.message}). Skifter til den langsomme metode.` });
       await scrape(mode, knownArr);
@@ -541,7 +618,7 @@
     }
     if (msg.cmd === "scrape") {
       stop = false;
-      run(msg.mode, msg.known);
+      run(msg.mode, msg.known, msg.needShare);
       sendResponse({ ok: true });
     } else if (msg.cmd === "stop") {
       stop = true;

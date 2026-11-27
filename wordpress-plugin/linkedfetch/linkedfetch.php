@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
- * Version: 0.4.5
+ * Version: 0.5.0
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,8 +10,8 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.4.5';
-const LF_DB_VERSION = '2';
+const LF_VERSION = '0.5.0';
+const LF_DB_VERSION = '3';
 
 function lf_table() {
     global $wpdb;
@@ -36,6 +36,10 @@ function lf_install() {
         image varchar(255) DEFAULT NULL,
         tags text NULL,
         tags_locked tinyint(1) NOT NULL DEFAULT 0,
+        share_title varchar(500) DEFAULT NULL,
+        share_source varchar(255) DEFAULT NULL,
+        share_url varchar(1000) DEFAULT NULL,
+        share_checked tinyint(1) NOT NULL DEFAULT 0,
         fetched datetime NOT NULL,
         PRIMARY KEY  (id),
         UNIQUE KEY post_urn (post_urn),
@@ -133,13 +137,18 @@ function lf_decode_tags($s) {
 }
 
 // Sætter automatiske tags på alle opslag, som brugeren ikke selv har ændret
+// Teksten, automatiske tags beregnes ud fra: opslagets tekst plus titlen på det delte indhold
+function lf_tag_text($text, $share_title) {
+    return trim((string) $text . "\n" . (string) $share_title);
+}
+
 function lf_retag_all() {
     global $wpdb;
     $t = lf_table();
     $defs = lf_get_tags();
-    $rows = $wpdb->get_results("SELECT id, text FROM $t WHERE tags_locked = 0");
+    $rows = $wpdb->get_results("SELECT id, text, share_title FROM $t WHERE tags_locked = 0");
     foreach ($rows as $r) {
-        $wpdb->update($t, ['tags' => lf_json(lf_match_tags($r->text, $defs))], ['id' => $r->id]);
+        $wpdb->update($t, ['tags' => lf_json(lf_match_tags(lf_tag_text($r->text, $r->share_title), $defs))], ['id' => $r->id]);
     }
     return count($rows);
 }
@@ -207,6 +216,24 @@ function lf_save_image($url, $urn) {
     return $file;
 }
 
+/* ---------- Delt indhold (artikel eller link i opslaget) ---------- */
+
+// Felterne for delt indhold fra udvidelsen. null, hvis udvidelsen ikke har tjekket det (ældre version).
+function lf_share_fields($p) {
+    if (empty($p['shareChecked'])) {
+        return null;
+    }
+    $title = mb_substr(sanitize_text_field($p['shareTitle'] ?? ''), 0, 500);
+    $source = mb_substr(sanitize_text_field($p['shareSource'] ?? ''), 0, 255);
+    $url = esc_url_raw($p['shareUrl'] ?? '', ['http', 'https']);
+    return [
+        'share_title' => $title !== '' ? $title : null,
+        'share_source' => $source !== '' ? $source : null,
+        'share_url' => ($url !== '' && strlen($url) <= 1000) ? $url : null,
+        'share_checked' => 1,
+    ];
+}
+
 /* ---------- REST-API ---------- */
 
 add_action('rest_api_init', function () {
@@ -228,6 +255,8 @@ add_action('rest_api_init', function () {
                     function ($r) { return $r['post_urn']; },
                     array_filter($rows, function ($r) { return !$r['has_image']; })
                 )),
+                // Opslag, hvor delt indhold (titel, kilde, link) ikke er tjekket endnu
+                'needShare' => $wpdb->get_col("SELECT post_urn FROM $t WHERE share_checked = 0"),
                 'maxNr' => (int) $wpdb->get_var("SELECT MAX(nr) FROM $t"),
                 'version' => LF_VERSION,
             ];
@@ -235,7 +264,8 @@ add_action('rest_api_init', function () {
     ]);
 
     // Til udvidelsen: modtag opslag. Nye indsættes med automatiske tags;
-    // eksisterende uden billede får billedet.
+    // eksisterende uden billede får billedet, og eksisterende, hvor delt
+    // indhold ikke er tjekket, får titel, kilde og link (shareChecked).
     register_rest_route('linkedfetch/v1', '/posts', [
         'methods' => 'POST',
         'permission_callback' => $admin,
@@ -249,13 +279,15 @@ add_action('rest_api_init', function () {
             $defs = lf_get_tags();
             $inserted = 0;
             $images = 0;
+            $shares = 0;
             foreach ($posts as $p) {
                 $urn = sanitize_text_field($p['id'] ?? '');
                 if (!preg_match('/^urn:li:(activity|share|ugcPost):\d+$/', $urn)) {
                     continue;
                 }
-                $existing = $wpdb->get_row($wpdb->prepare("SELECT id, image FROM $t WHERE post_urn = %s", $urn));
+                $existing = $wpdb->get_row($wpdb->prepare("SELECT id, image, text, tags_locked, share_checked FROM $t WHERE post_urn = %s", $urn));
                 $imageUrl = esc_url_raw($p['image'] ?? '');
+                $share = lf_share_fields($p);
 
                 if ($existing) {
                     if (!$existing->image && $imageUrl) {
@@ -264,6 +296,14 @@ add_action('rest_api_init', function () {
                             $wpdb->update($t, ['image' => $file], ['id' => $existing->id]);
                             $images++;
                         }
+                    }
+                    if ($share && !(int) $existing->share_checked) {
+                        $update = $share;
+                        if (!(int) $existing->tags_locked) {
+                            $update['tags'] = lf_json(lf_match_tags(lf_tag_text($existing->text, $share['share_title']), $defs));
+                        }
+                        $wpdb->update($t, $update, ['id' => $existing->id]);
+                        $shares++;
                     }
                     continue;
                 }
@@ -279,10 +319,10 @@ add_action('rest_api_init', function () {
                     'url' => esc_url_raw($p['url'] ?? ''),
                     'posted' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $posted) ? $posted : null,
                     'image' => $file,
-                    'tags' => lf_json(lf_match_tags($text, $defs)),
+                    'tags' => lf_json(lf_match_tags(lf_tag_text($text, $share['share_title'] ?? ''), $defs)),
                     'tags_locked' => 0,
                     'fetched' => current_time('mysql'),
-                ]);
+                ] + ($share ?: []));
                 if ($ok) {
                     $inserted++;
                     if ($file) {
@@ -290,7 +330,7 @@ add_action('rest_api_init', function () {
                     }
                 }
             }
-            return ['inserted' => $inserted, 'images' => $images];
+            return ['inserted' => $inserted, 'images' => $images, 'shares' => $shares];
         },
     ]);
 
@@ -302,12 +342,12 @@ add_action('rest_api_init', function () {
             global $wpdb;
             $t = lf_table();
             $urn = sanitize_text_field($req->get_param('id'));
-            $row = $wpdb->get_row($wpdb->prepare("SELECT id, text FROM $t WHERE post_urn = %s", $urn));
+            $row = $wpdb->get_row($wpdb->prepare("SELECT id, text, share_title FROM $t WHERE post_urn = %s", $urn));
             if (!$row) {
                 return new WP_Error('lf_404', 'Opslaget findes ikke.', ['status' => 404]);
             }
             if ($req->get_param('auto')) {
-                $tags = lf_match_tags($row->text, lf_get_tags());
+                $tags = lf_match_tags(lf_tag_text($row->text, $row->share_title), lf_get_tags());
                 $wpdb->update($t, ['tags' => lf_json($tags), 'tags_locked' => 0], ['id' => $row->id]);
                 return ['tags' => $tags, 'locked' => false];
             }
@@ -401,7 +441,8 @@ function lf_ai_where(array $in) {
     $a = [];
     if (!empty($in['query'])) {
         $like = '%' . $wpdb->esc_like(trim((string) $in['query'])) . '%';
-        $w[] = '(text LIKE %s OR author LIKE %s)';
+        $w[] = '(text LIKE %s OR author LIKE %s OR share_title LIKE %s)';
+        $a[] = $like;
         $a[] = $like;
         $a[] = $like;
     }
@@ -451,6 +492,11 @@ function lf_ai_format($r, $text_mode) {
         'tags_set_by_user' => (bool) $r->tags_locked,
         'has_image' => !empty($r->image),
         'length' => mb_strlen($text),
+        'shared' => !empty($r->share_title) ? [
+            'title' => $r->share_title,
+            'source' => $r->share_source,
+            'url' => $r->share_url,
+        ] : null,
     ];
     if ($text_mode === 'full') {
         $out['text'] = $text;
@@ -494,7 +540,7 @@ add_action('wp_abilities_api_init', function () {
         ];
     };
     $filters = [
-        'query' => ['type' => 'string', 'description' => 'Fritekst. Søger i opslagets tekst og forfatternavn (del af ord er nok, ikke versalfølsom).'],
+        'query' => ['type' => 'string', 'description' => 'Fritekst. Søger i opslagets tekst, forfatternavn og titlen på delt indhold (del af ord er nok, ikke versalfølsom).'],
         'author' => ['type' => 'string', 'description' => 'Forfatter. Del af navnet er nok, medmindre author_exact=true.'],
         'author_exact' => ['type' => 'boolean', 'default' => false, 'description' => 'Kræv præcist forfatternavn (brug navnet fra list-authors).'],
         'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Tag-navne præcis som i overview, fx "Prompting".'],
@@ -572,7 +618,7 @@ add_action('wp_abilities_api_init', function () {
             list($where, $args) = lf_ai_where($in);
             $count_sql = "SELECT COUNT(*) FROM $t $where";
             $total = (int) $wpdb->get_var($args ? $wpdb->prepare($count_sql, $args) : $count_sql);
-            $sql = "SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked FROM $t $where ORDER BY $order LIMIT %d OFFSET %d";
+            $sql = "SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked, share_title, share_source, share_url FROM $t $where ORDER BY $order LIMIT %d OFFSET %d";
             $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge($args, [$limit, $offset])));
             $next = $offset + count($rows);
             return [
@@ -607,7 +653,7 @@ add_action('wp_abilities_api_init', function () {
             }
             $ph = implode(',', array_fill(0, count($ids), '%s'));
             $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked FROM $t WHERE post_urn IN ($ph)", $ids
+                "SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked, share_title, share_source, share_url FROM $t WHERE post_urn IN ($ph)", $ids
             ));
             $found = [];
             foreach ($rows as $r) {
@@ -693,7 +739,7 @@ add_action('template_redirect', function () {
 function lf_render_dashboard() {
     global $wpdb;
     $t = lf_table();
-    $rows = $wpdb->get_results("SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked FROM $t ORDER BY nr DESC, id DESC", ARRAY_A);
+    $rows = $wpdb->get_results("SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked, share_title, share_source, share_url FROM $t ORDER BY nr DESC, id DESC", ARRAY_A);
     $imgBase = lf_image_dir()['url'];
     $data = array_map(function ($r) use ($imgBase) {
         return [
@@ -706,6 +752,9 @@ function lf_render_dashboard() {
             'i' => $r['image'] ? $imgBase . '/' . rawurlencode($r['image']) : null,
             'g' => lf_decode_tags($r['tags']),
             'l' => (bool) $r['tags_locked'],
+            'st' => $r['share_title'],
+            'ss' => $r['share_source'],
+            'su' => $r['share_url'],
         ];
     }, $rows);
     $boot = [
@@ -836,6 +885,13 @@ function lf_render_dashboard() {
   .article .text { font:17px/1.62 var(--read); white-space:pre-wrap; word-wrap:break-word; margin-top:18px; }
   .article img { width:100%; border-radius:8px; margin-top:18px; display:block; }
   .article .src { display:inline-block; margin-top:18px; }
+  /* Delt indhold: artikel eller link i opslaget */
+  .share { display:block; margin-top:14px; padding:10px 14px; border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:8px;
+           background:var(--raised); color:var(--ink); text-decoration:none; }
+  .share:hover { border-color:var(--accent); }
+  .share b { display:block; font-weight:650; line-height:1.35; }
+  .share span { display:block; color:var(--muted); font-size:12.5px; margin-top:3px; }
+  .share em { font-style:normal; color:var(--faint); }
   .tagedit { margin-top:26px; padding-top:16px; border-top:1px solid var(--line); }
   .tagedit h3 { font-size:13px; margin:0 0 8px; color:var(--muted); font-weight:650; }
   .tchips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -1001,7 +1057,7 @@ function lf_render_dashboard() {
     if (st.imgOnly && !p.i) return false;
     if (from && (!p.d || p.d < from)) return false;
     if (to && (!p.d || p.d > to)) return false;
-    if (st.q && !(p.t + ' ' + p.a).toLowerCase().includes(st.q.toLowerCase())) return false;
+    if (st.q && !(p.t + ' ' + p.a + ' ' + (p.st || '')).toLowerCase().includes(st.q.toLowerCase())) return false;
     if (skip !== 'tags' && st.tags.size) {
       const has = (t) => t === '__none' ? !p.g.length : p.g.includes(t);
       const sel = [...st.tags];
@@ -1066,6 +1122,14 @@ function lf_render_dashboard() {
     return out + highlight(text.slice(last));
   }
 
+  // Boks med det delte indhold. Uden kendt link peger den på opslaget på LinkedIn.
+  function shareBox(p) {
+    if (!p.st) return '';
+    const href = p.su || p.u;
+    const note = p.su ? '' : ' <em>(linket findes i opslaget på LinkedIn)</em>';
+    return `<a class="share" href="${esc(href)}" target="_blank" rel="noopener noreferrer"><b>${highlight(p.st)}</b><span>${esc(p.ss || 'Delt indhold')}${note}</span></a>`;
+  }
+
   function excerpt(t) {
     const flat = t.replace(/\s+/g, ' ').trim();
     if (!st.q) return flat.slice(0, 320);
@@ -1077,7 +1141,7 @@ function lf_render_dashboard() {
     const initials = (p.a || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
     const img = p.i ? `<img class="thumb" loading="lazy" src="${esc(p.i)}" alt="">` : `<div class="thumb ph" aria-hidden="true">${esc(initials)}</div>`;
     const who = `<div class="who"><b>${highlight(p.a || 'Ukendt')}</b><time datetime="${esc(p.d || '')}">${fmt(p.d)}</time></div>
-      <div class="ex">${highlight(excerpt(p.t))}</div>`;
+      <div class="ex">${highlight(excerpt(p.st ? p.t + ' — ' + p.st : p.t))}</div>`;
     if (st.view === 'grid') {
       // Alle tags lægges på billedet; fitChips() fjerner dem, der ikke kan være på to linjer
       const chips = p.g.map((g) => `<span class="chip" title="${esc(g)}"><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('');
@@ -1203,6 +1267,7 @@ function lf_render_dashboard() {
     pop.innerHTML = `<div class="by">${esc(p.a || 'Ukendt')}</div>
       <div class="when">${p.d ? fmt(p.d, true) : 'Dato ukendt'}</div>
       <div class="text">${richText(p.t)}</div>
+      ${shareBox(p)}
       ${p.i ? `<img src="${esc(p.i)}" alt="">` : ''}
       ${p.g.length ? `<div class="ptags">${p.g.map((g) => `<span><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('')}</div>` : ''}
       <div class="hint">Klik for at åbne opslaget</div>`;
@@ -1257,6 +1322,7 @@ function lf_render_dashboard() {
         <p class="by">${esc(p.a || 'Ukendt')}</p>
         <div class="when">${p.d ? 'Opslået ' + fmt(p.d, true) : 'Dato ukendt'}${p.nr ? `, gemt som nr. ${p.nr}` : ''}</div>
         <div class="text">${richText(p.t)}</div>
+        ${shareBox(p)}
         ${p.i ? `<img src="${esc(p.i)}" alt="Billede fra opslaget">` : ''}
         <div class="tagedit">
           <h3>Tags</h3>

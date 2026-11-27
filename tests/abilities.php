@@ -9,7 +9,6 @@ define('ABSPATH', __DIR__ . '/');
 define('ARRAY_A', 'ARRAY_A');
 $GLOBALS['actions'] = []; $GLOBALS['filters'] = []; $GLOBALS['abilities'] = []; $GLOBALS['admin'] = true; $GLOBALS['sqllog'] = [];
 class WP_Error { public $code, $message, $data; function __construct($c, $m, $d = null) { $this->code = $c; $this->message = $m; $this->data = $d; } }
-class WP_REST_Request {}
 function is_wp_error($x) { return $x instanceof WP_Error; }
 function wp_json_encode($v, $f = 0) { return json_encode($v, $f); }
 function add_action($h, $cb) { $GLOBALS['actions'][$h][] = $cb; }
@@ -23,6 +22,12 @@ function home_url($p = '') { return 'https://keha.dk' . $p; }
 function wp_strip_all_tags($s) { return strip_tags($s); }
 function wp_register_ability_category($n, $a) { $GLOBALS['categories'][$n] = $a; }
 function wp_register_ability($n, $a) { $GLOBALS['abilities'][$n] = $a; }
+function register_rest_route($ns, $route, $args) { $GLOBALS['routes'][$route] = $args; }
+function sanitize_text_field($s) { return trim(preg_replace('/\s+/', ' ', strip_tags((string) $s))); }
+function sanitize_textarea_field($s) { return trim(strip_tags((string) $s)); }
+function esc_url_raw($u, $p = null) { $u = trim((string) $u); return preg_match('#^https?://#i', $u) ? $u : ''; }
+function current_time($t) { return '2026-11-27 20:00:00'; }
+class WP_REST_Request { private $p; function __construct($p = []) { $this->p = $p; } function get_param($k) { return $this->p[$k] ?? null; } }
 class FakeWpdb {
     public $prefix = 'wp_'; private $pdo;
     function __construct() { $this->pdo = new PDO('sqlite::memory:'); $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -35,11 +40,17 @@ class FakeWpdb {
     private function q($sql) { $GLOBALS['sqllog'][] = $sql; $sqlite = preg_replace("/LIKE ('(?:[^']|'')*')/", "LIKE $1 ESCAPE '\\'", $sql); return $this->pdo->query($sqlite); }
     function get_var($sql) { $r = $this->q($sql)->fetch(PDO::FETCH_NUM); return $r ? $r[0] : null; }
     function get_col($sql) { return $this->q($sql)->fetchAll(PDO::FETCH_COLUMN); }
+    function update($table, $data, $where) { $set = []; $a = []; foreach ($data as $k => $v) { $set[] = "$k = ?"; $a[] = $v; }
+        $w = []; foreach ($where as $k => $v) { $w[] = "$k = ?"; $a[] = $v; }
+        $st = $this->pdo->prepare("UPDATE $table SET " . implode(', ', $set) . ' WHERE ' . implode(' AND ', $w)); $st->execute($a); return $st->rowCount(); }
+    function insert($table, $data) { $st = $this->pdo->prepare("INSERT INTO $table (" . implode(',', array_keys($data)) . ') VALUES (' . implode(',', array_fill(0, count($data), '?')) . ')');
+        try { $st->execute(array_values($data)); return 1; } catch (PDOException $e) { return false; } }
+    function get_row($sql) { $r = $this->q($sql)->fetch(PDO::FETCH_OBJ); return $r ?: null; }
     function get_results($sql, $o = null) { return $this->q($sql)->fetchAll($o === ARRAY_A ? PDO::FETCH_ASSOC : PDO::FETCH_OBJ); }
 }
 $wpdb = new FakeWpdb();
 require __DIR__ . '/../wordpress-plugin/linkedfetch/linkedfetch.php';
-$wpdb->exec("CREATE TABLE wp_linkedfetch_posts (id INTEGER PRIMARY KEY, post_urn TEXT, nr INT, author TEXT, text TEXT, url TEXT, posted TEXT, image TEXT, tags TEXT, tags_locked INT DEFAULT 0, fetched TEXT)");
+$wpdb->exec("CREATE TABLE wp_linkedfetch_posts (id INTEGER PRIMARY KEY, post_urn TEXT UNIQUE, nr INT, author TEXT, text TEXT, url TEXT, posted TEXT, image TEXT, tags TEXT, tags_locked INT DEFAULT 0, share_title TEXT, share_source TEXT, share_url TEXT, share_checked INT DEFAULT 0, fetched TEXT)");
 $rows = [
     ['urn:li:activity:1', 1, 'Marc Kluge', 'AI og eksamen. Snyd er ikke problemet.', '2026-02-14', 'a.webp', '["Eksamen og snyd","Didaktik og læringsdesign"]'],
     ['urn:li:activity:2', 2, 'Marc Kluge', 'Om ledelse og drift', '2026-05-16', null, '["Ledelse og strategi"]'],
@@ -85,6 +96,40 @@ check(is_wp_error(call('get-posts', ['ids' => ['x']])), 'ugyldige id giver fejl'
 
 $l = call('list-authors', ['search' => 'kluge']); check($l['total'] === 1 && $l['items'][0]['count'] === 2 && $l['items'][0]['newest_posted'] === '2026-05-16', 'list-authors');
 $l = call('list-authors', ['min_posts' => 2]); check($l['total'] === 1, 'min_posts');
+
+// ---- Delt indhold via REST ----
+update_option('linkedfetch_tags', lf_default_tags());
+foreach ($GLOBALS['actions']['rest_api_init'] as $cb) { $cb(); }
+function rest($route, $params) { return ($GLOBALS['routes'][$route]['callback'])(new WP_REST_Request($params)); }
+$ids = ($GLOBALS['routes']['/ids']['callback'])();
+check(count($ids['needShare']) === 4, 'alle gamle opslag mangler tjek af delt indhold');
+// Ældre udvidelse uden shareChecked: intet ændres
+$r = rest('/posts', ['posts' => [['id' => 'urn:li:activity:2', 'shareTitle' => 'X']]]);
+check($r['shares'] === 0, 'gammel udvidelse ændrer ikke delt indhold');
+// Efterhentning: eksisterende opslag får titel, kilde og link, og automatiske tags medtager titlen
+$r = rest('/posts', ['posts' => [
+    ['id' => 'urn:li:activity:2', 'shareChecked' => true, 'shareTitle' => 'Prompting i praksis', 'shareSource' => 'oneusefulthing.org', 'shareUrl' => 'https://www.oneusefulthing.org/p/x'],
+    ['id' => 'urn:li:activity:4', 'shareChecked' => true],
+    ['id' => 'urn:li:activity:1', 'shareChecked' => true, 'shareUrl' => 'javascript:alert(1)', 'shareTitle' => 'T'],
+]]);
+check($r['shares'] === 3 && $r['inserted'] === 0, 'tre eksisterende tjekket');
+$row = $wpdb->get_row("SELECT * FROM wp_linkedfetch_posts WHERE post_urn = 'urn:li:activity:2'");
+check($row->share_title === 'Prompting i praksis' && $row->share_url === 'https://www.oneusefulthing.org/p/x' && (int) $row->share_checked === 1, 'felter gemt');
+check(in_array('Prompting', json_decode($row->tags, true), true), 'auto-tag ud fra delt titel');
+$row = $wpdb->get_row("SELECT * FROM wp_linkedfetch_posts WHERE post_urn = 'urn:li:activity:4'");
+check($row->share_title === null && (int) $row->share_checked === 1, 'uden delt indhold markeres som tjekket');
+$row = $wpdb->get_row("SELECT * FROM wp_linkedfetch_posts WHERE post_urn = 'urn:li:activity:1'");
+check($row->share_url === null, 'javascript-link afvises');
+// Allerede tjekket overskrives ikke
+$r = rest('/posts', ['posts' => [['id' => 'urn:li:activity:2', 'shareChecked' => true, 'shareTitle' => 'Andet']]]);
+check($r['shares'] === 0 && $wpdb->get_var("SELECT share_title FROM wp_linkedfetch_posts WHERE post_urn = 'urn:li:activity:2'") === 'Prompting i praksis', 'tjekket overskrives ikke');
+// Nyt opslag med delt indhold
+$r = rest('/posts', ['posts' => [['id' => 'urn:li:activity:5', 'nr' => 5, 'author' => 'Ny', 'text' => 'Læs den', 'url' => 'https://x', 'date' => '2026-11-27', 'shareChecked' => true, 'shareTitle' => 'Eksamen i AI-tiden', 'shareSource' => 'Ove Christensen on LinkedIn']]]);
+check($r['inserted'] === 1, 'nyt indsat');
+$ids = ($GLOBALS['routes']['/ids']['callback'])();
+check($ids['needShare'] === ['urn:li:activity:3'], 'kun ét mangler tjek nu');
+$s = call('search-posts', ['query' => 'Eksamen i AI', 'text' => 'none']);
+check($s['total'] === 1 && $s['items'][0]['shared']['source'] === 'Ove Christensen on LinkedIn', 'søgning i delt titel + shared i output');
 
 $GLOBALS['admin'] = false; check(is_wp_error(call('overview')), 'kræver administrator');
 echo "PASS: $checks kontroller\n";

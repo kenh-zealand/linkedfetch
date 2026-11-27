@@ -66,6 +66,8 @@ let runNotion = false;
 let runKeha = false;
 let kehaKnown = new Set();
 let kehaNoImage = new Set();
+let kehaNeedShare = new Set(); // opslag på keha.dk, hvor delt indhold ikke er tjekket
+let kehaShareFills = []; // eksisterende opslag, der får titel, kilde og link på delt indhold
 let kehaMax = 0;
 let kehaPending = []; // nye opslag til keha.dk, nyeste først
 let kehaFills = []; // eksisterende opslag på keha.dk, der mangler billede
@@ -105,13 +107,21 @@ async function loadKehaKnown() {
   const r = await keha("ids");
   kehaKnown = new Set(r.ids || []);
   kehaNoImage = new Set(r.noImage || []);
+  kehaNeedShare = new Set(r.needShare || []);
   kehaMax = r.maxNr || 0;
   kehaPending = [];
   kehaFills = [];
+  kehaShareFills = [];
   return r;
 }
 
 // Sender nye opslag (ældste først, med Nr) og manglende billeder til keha.dk i bundter
+// Felter for delt indhold (kun når udvidelsen har tjekket opslaget)
+function shareFields(p) {
+  if (!p.shareChecked) return {};
+  return { shareChecked: true, shareTitle: p.shareTitle || null, shareSource: p.shareSource || null, shareUrl: p.shareUrl || null };
+}
+
 async function sendKeha() {
   kehaBusy = true;
   // Egne kopier, så Notions nummerering ikke blandes sammen med keha.dk's
@@ -127,7 +137,7 @@ async function sendKeha() {
   for (let i = 0; i < all.length; i += 20) {
     const chunk = all.slice(i, i + 20).map((p) => ({
       id: p.id, url: p.url, author: p.author, text: p.text,
-      image: p.image || null, date: postDate(p.id), nr: p.nr
+      image: p.image || null, date: postDate(p.id), nr: p.nr, ...shareFields(p)
     }));
     try {
       await keha("posts", "POST", { posts: chunk });
@@ -139,8 +149,31 @@ async function sendKeha() {
     kehaLeft = Math.max(0, kehaLeft - chunk.length);
     await setStatus();
   }
+  await sendShareFills();
   kehaBusy = false;
   maybeFinish();
+}
+
+// Eksisterende opslag får titel, kilde og link på delt indhold (eller markeres som tjekket)
+async function sendShareFills() {
+  const fills = kehaShareFills.map((p) => ({ id: p.id, ...shareFields(p) }));
+  kehaShareFills = [];
+  if (!fills.length) return;
+  const withShare = fills.filter((f) => f.shareTitle).length;
+  await log(`keha.dk: ${fills.length} eksisterende opslag tjekket for delt indhold (${withShare} med artikel eller link).`);
+  kehaLeft += fills.length;
+  await setStatus();
+  for (let i = 0; i < fills.length; i += 100) {
+    const chunk = fills.slice(i, i + 100);
+    try {
+      await keha("posts", "POST", { posts: chunk });
+    } catch (e) {
+      stats.errors += chunk.length;
+      await log("Fejl ved afsendelse af delt indhold til keha.dk: " + e.message);
+    }
+    kehaLeft = Math.max(0, kehaLeft - chunk.length);
+    await setStatus();
+  }
 }
 
 // Notion tillader i gennemsnit omkring 3 kald i sekundet. Alle kald går
@@ -435,9 +468,15 @@ function collect(posts) {
       if (!kehaKnown.has(p.id)) {
         kehaKnown.add(p.id);
         kehaPending.push(p);
-      } else if (p.image && kehaNoImage.has(p.id)) {
-        kehaNoImage.delete(p.id);
-        kehaFills.push(p);
+      } else {
+        if (p.image && kehaNoImage.has(p.id)) {
+          kehaNoImage.delete(p.id);
+          kehaFills.push(p);
+        }
+        if (p.shareChecked && kehaNeedShare.has(p.id)) {
+          kehaNeedShare.delete(p.id);
+          kehaShareFills.push(p);
+        }
       }
     }
   }
@@ -626,7 +665,12 @@ async function startRun(mode) {
       : runNotion ? [...known] : [...kehaKnown];
     // Fuld hentning åbnes i forgrunden, fordi Chrome bremser skjulte faner kraftigt.
     runTabId = await openSavedTab(mode === "full");
-    await chrome.tabs.sendMessage(runTabId, { cmd: "scrape", mode, known: knownAll });
+    // Opslag, hvor keha.dk mangler delt indhold, får slået linket op under gennemgangen
+    const needShare = runKeha ? [...kehaNeedShare] : [];
+    if (runKeha && needShare.length) {
+      await log(`${needShare.length} opslag på keha.dk er ikke tjekket for delt indhold endnu. En fuld hentning udfylder dem.`);
+    }
+    await chrome.tabs.sendMessage(runTabId, { cmd: "scrape", mode, known: knownAll, needShare });
   } catch (e) {
     if (/Could not find database/i.test(e.message)) {
       await chrome.storage.local.remove("databaseId");
@@ -653,6 +697,7 @@ async function stopRun() {
   pending = [];
   kehaPending = [];
   kehaFills = [];
+  kehaShareFills = [];
   scrapeDone = true;
   await log("Stoppet af dig.");
   maybeFinish();
