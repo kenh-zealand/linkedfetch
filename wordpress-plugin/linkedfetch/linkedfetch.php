@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
- * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre.
- * Version: 0.3.2
+ * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre, og skrivebeskyttede AI-værktøjer via KEHA MCP.
+ * Version: 0.4.0
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.3.2';
+const LF_VERSION = '0.4.0';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -363,6 +363,304 @@ add_action('rest_api_init', function () {
             return ['tags' => array_values($new), 'retagged' => $retagged];
         },
     ]);
+});
+
+/* ---------- Værktøjer til AI (Abilities API → KEHA MCP) ---------- */
+
+// Værktøjerne er kun læsende og kræver administrator. De vises i KEHA MCP-serveren
+// via filteret keha_mcp_ability_names (KEHA MCP 0.4.0 eller nyere).
+
+function lf_ability_names() {
+    return [
+        'linkedfetch/overview',
+        'linkedfetch/search-posts',
+        'linkedfetch/get-posts',
+        'linkedfetch/list-authors',
+    ];
+}
+
+function lf_ai_input($input) {
+    if (is_array($input)) {
+        return $input;
+    }
+    if (is_object($input)) {
+        return json_decode(wp_json_encode($input), true) ?: [];
+    }
+    return [];
+}
+
+function lf_ai_date($v) {
+    $v = trim((string) $v);
+    return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : null;
+}
+
+// Fælles WHERE-del til søgning. Returnerer [sql, args].
+function lf_ai_where(array $in) {
+    global $wpdb;
+    $w = [];
+    $a = [];
+    if (!empty($in['query'])) {
+        $like = '%' . $wpdb->esc_like(trim((string) $in['query'])) . '%';
+        $w[] = '(text LIKE %s OR author LIKE %s)';
+        $a[] = $like;
+        $a[] = $like;
+    }
+    if (!empty($in['author'])) {
+        $author = trim((string) $in['author']);
+        if (!empty($in['author_exact'])) {
+            $w[] = 'author = %s';
+            $a[] = $author;
+        } else {
+            $w[] = 'author LIKE %s';
+            $a[] = '%' . $wpdb->esc_like($author) . '%';
+        }
+    }
+    $tags = array_values(array_filter(array_map('lf_clean_tag_name', (array) ($in['tags'] ?? []))));
+    if ($tags) {
+        $parts = [];
+        foreach ($tags as $tag) {
+            // Tags gemmes som JSON-liste, fx ["Prompting","Feedback"]
+            $parts[] = 'tags LIKE %s';
+            $a[] = '%' . $wpdb->esc_like(substr(lf_json([$tag]), 1, -1)) . '%'; // "Navn" med citationstegn
+        }
+        $w[] = '(' . implode(($in['tag_mode'] ?? 'any') === 'all' ? ' AND ' : ' OR ', $parts) . ')';
+    }
+    if ($from = lf_ai_date($in['from'] ?? '')) {
+        $w[] = 'posted >= %s';
+        $a[] = $from;
+    }
+    if ($to = lf_ai_date($in['to'] ?? '')) {
+        $w[] = 'posted <= %s';
+        $a[] = $to;
+    }
+    if (!empty($in['with_image'])) {
+        $w[] = 'image IS NOT NULL';
+    }
+    return [$w ? 'WHERE ' . implode(' AND ', $w) : '', $a];
+}
+
+function lf_ai_format($r, $text_mode) {
+    $text = (string) $r->text;
+    $out = [
+        'id' => $r->post_urn,
+        'nr' => $r->nr !== null ? (int) $r->nr : null,
+        'author' => $r->author,
+        'posted' => $r->posted,
+        'url' => $r->url,
+        'tags' => lf_decode_tags($r->tags),
+        'tags_set_by_user' => (bool) $r->tags_locked,
+        'has_image' => !empty($r->image),
+        'length' => mb_strlen($text),
+    ];
+    if ($text_mode === 'full') {
+        $out['text'] = $text;
+    } elseif ($text_mode === 'excerpt') {
+        $flat = trim(preg_replace('/\s+/u', ' ', $text));
+        $out['excerpt'] = mb_strlen($flat) > 300 ? mb_substr($flat, 0, 300) . '…' : $flat;
+    }
+    return $out;
+}
+
+function lf_ai_error($code, $message, $status = 400) {
+    return new WP_Error('lf_' . $code, $message, ['status' => $status]);
+}
+
+add_action('wp_abilities_api_categories_init', function () {
+    if (function_exists('wp_register_ability_category')) {
+        wp_register_ability_category('linkedfetch', [
+            'label' => 'LinkedFetch',
+            'description' => 'Søgning i Kenneths gemte LinkedIn-opslag på keha.dk.',
+        ]);
+    }
+});
+
+add_action('wp_abilities_api_init', function () {
+    if (!function_exists('wp_register_ability')) {
+        return;
+    }
+    $admin = function () {
+        return current_user_can('manage_options');
+    };
+    $common = function ($label, $description, $schema, $callback) use ($admin) {
+        return [
+            'label' => $label,
+            'description' => $description,
+            'category' => 'linkedfetch',
+            'input_schema' => $schema + ['additionalProperties' => false],
+            'output_schema' => ['type' => 'object'],
+            'execute_callback' => $callback,
+            'permission_callback' => $admin,
+            'meta' => ['show_in_rest' => true, 'annotations' => ['readonly' => true, 'destructive' => false, 'idempotent' => true]],
+        ];
+    };
+    $filters = [
+        'query' => ['type' => 'string', 'description' => 'Fritekst. Søger i opslagets tekst og forfatternavn (del af ord er nok, ikke versalfølsom).'],
+        'author' => ['type' => 'string', 'description' => 'Forfatter. Del af navnet er nok, medmindre author_exact=true.'],
+        'author_exact' => ['type' => 'boolean', 'default' => false, 'description' => 'Kræv præcist forfatternavn (brug navnet fra list-authors).'],
+        'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Tag-navne præcis som i overview, fx "Prompting".'],
+        'tag_mode' => ['type' => 'string', 'enum' => ['any', 'all'], 'default' => 'any', 'description' => 'any: mindst ét af tags. all: alle tags.'],
+        'from' => ['type' => 'string', 'description' => 'Opslået fra og med dato, ÅÅÅÅ-MM-DD.'],
+        'to' => ['type' => 'string', 'description' => 'Opslået til og med dato, ÅÅÅÅ-MM-DD.'],
+        'with_image' => ['type' => 'boolean', 'default' => false, 'description' => 'Kun opslag med billede.'],
+    ];
+
+    // Overblik: antal, periode, tags og de mest gemte forfattere
+    wp_register_ability('linkedfetch/overview', $common(
+        'Overblik over gemte LinkedIn-opslag',
+        'Giver et overblik over Kenneths gemte LinkedIn-opslag på keha.dk: antal i alt, ældste og nyeste opslagsdato, alle tags med antal og de forfattere, der er gemt flest opslag fra. Godt første kald.',
+        ['type' => 'object', 'properties' => [
+            'top_authors' => ['type' => 'integer', 'minimum' => 0, 'maximum' => 100, 'default' => 15, 'description' => 'Antal forfattere i toplisten.'],
+        ]],
+        function ($input) {
+            global $wpdb;
+            $in = lf_ai_input($input);
+            $t = lf_table();
+            $counts = [];
+            $none = 0;
+            foreach ($wpdb->get_col("SELECT tags FROM $t") as $json) {
+                $g = lf_decode_tags($json);
+                if (!$g) {
+                    $none++;
+                }
+                foreach ($g as $name) {
+                    $counts[$name] = ($counts[$name] ?? 0) + 1;
+                }
+            }
+            $tags = array_map(function ($d) use ($counts) {
+                return ['name' => $d['name'], 'count' => $counts[$d['name']] ?? 0];
+            }, lf_get_tags());
+            usort($tags, function ($x, $y) { return $y['count'] <=> $x['count']; });
+            $n = max(0, min(100, (int) ($in['top_authors'] ?? 15)));
+            $authors = $n ? $wpdb->get_results($wpdb->prepare(
+                "SELECT author AS name, COUNT(*) AS count FROM $t WHERE author <> '' GROUP BY author ORDER BY count DESC, author ASC LIMIT %d", $n
+            ), ARRAY_A) : [];
+            foreach ($authors as &$a) {
+                $a['count'] = (int) $a['count'];
+            }
+            return [
+                'total' => (int) $wpdb->get_var("SELECT COUNT(*) FROM $t"),
+                'authors_total' => (int) $wpdb->get_var("SELECT COUNT(DISTINCT author) FROM $t WHERE author <> ''"),
+                'oldest_posted' => $wpdb->get_var("SELECT MIN(posted) FROM $t"),
+                'newest_posted' => $wpdb->get_var("SELECT MAX(posted) FROM $t"),
+                'last_fetched' => $wpdb->get_var("SELECT MAX(fetched) FROM $t"),
+                'tags' => $tags,
+                'without_tags' => $none,
+                'top_authors' => $authors,
+                'dashboard' => home_url('/linkedfetch/'),
+            ];
+        }
+    ));
+
+    // Søgning med filtre
+    wp_register_ability('linkedfetch/search-posts', $common(
+        'Søg i gemte LinkedIn-opslag',
+        'Søger i Kenneths gemte LinkedIn-opslag med fritekst, forfatter, tags og periode. Returnerer antal træf og en side med opslag. Som standard kun et uddrag af teksten; sæt text="full" for hele teksten (højst 25 pr. side) eller brug get-posts bagefter.',
+        ['type' => 'object', 'properties' => $filters + [
+            'sort' => ['type' => 'string', 'enum' => ['saved', 'newest', 'oldest'], 'default' => 'newest', 'description' => 'saved: senest gemt. newest/oldest: efter opslagsdato.'],
+            'text' => ['type' => 'string', 'enum' => ['none', 'excerpt', 'full'], 'default' => 'excerpt', 'description' => 'Hvor meget af teksten der kommer med.'],
+            'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 100, 'default' => 20],
+            'offset' => ['type' => 'integer', 'minimum' => 0, 'default' => 0],
+        ]],
+        function ($input) {
+            global $wpdb;
+            $in = lf_ai_input($input);
+            $t = lf_table();
+            $mode = in_array($in['text'] ?? 'excerpt', ['none', 'excerpt', 'full'], true) ? ($in['text'] ?? 'excerpt') : 'excerpt';
+            $limit = max(1, min($mode === 'full' ? 25 : 100, (int) ($in['limit'] ?? 20)));
+            $offset = max(0, (int) ($in['offset'] ?? 0));
+            $order = ['saved' => 'nr DESC, id DESC', 'oldest' => 'posted IS NULL, posted ASC, id ASC'][$in['sort'] ?? ''] ?? 'posted DESC, id DESC';
+            list($where, $args) = lf_ai_where($in);
+            $count_sql = "SELECT COUNT(*) FROM $t $where";
+            $total = (int) $wpdb->get_var($args ? $wpdb->prepare($count_sql, $args) : $count_sql);
+            $sql = "SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked FROM $t $where ORDER BY $order LIMIT %d OFFSET %d";
+            $rows = $wpdb->get_results($wpdb->prepare($sql, array_merge($args, [$limit, $offset])));
+            $next = $offset + count($rows);
+            return [
+                'total' => $total,
+                'offset' => $offset,
+                'returned' => count($rows),
+                'next_offset' => $next < $total ? $next : null,
+                'items' => array_map(function ($r) use ($mode) { return lf_ai_format($r, $mode); }, $rows),
+            ];
+        }
+    ));
+
+    // Hent hele teksten for udvalgte opslag
+    wp_register_ability('linkedfetch/get-posts', $common(
+        'Hent gemte LinkedIn-opslag',
+        'Henter op til 25 gemte LinkedIn-opslag med hele teksten ud fra deres id (urn:li:…), som search-posts returnerer.',
+        ['type' => 'object', 'required' => ['ids'], 'properties' => [
+            'ids' => ['type' => 'array', 'items' => ['type' => 'string'], 'minItems' => 1, 'maxItems' => 25, 'description' => 'Opslagenes id, fx "urn:li:activity:7532081287134638081".'],
+        ]],
+        function ($input) {
+            global $wpdb;
+            $in = lf_ai_input($input);
+            $t = lf_table();
+            $ids = array_values(array_unique(array_filter((array) ($in['ids'] ?? []), function ($id) {
+                return is_string($id) && preg_match('/^urn:li:(activity|share|ugcPost):\d+$/', $id);
+            })));
+            if (!$ids) {
+                return lf_ai_error('bad_ids', 'Angiv mindst ét gyldigt id på formen urn:li:activity:123…');
+            }
+            if (count($ids) > 25) {
+                return lf_ai_error('too_many', 'Højst 25 id\'er pr. kald.');
+            }
+            $ph = implode(',', array_fill(0, count($ids), '%s'));
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT post_urn, nr, author, text, url, posted, image, tags, tags_locked FROM $t WHERE post_urn IN ($ph)", $ids
+            ));
+            $found = [];
+            foreach ($rows as $r) {
+                $found[$r->post_urn] = lf_ai_format($r, 'full');
+            }
+            return [
+                'items' => array_values(array_filter(array_map(function ($id) use ($found) { return $found[$id] ?? null; }, $ids))),
+                'not_found' => array_values(array_diff($ids, array_keys($found))),
+            ];
+        }
+    ));
+
+    // Forfattere med antal
+    wp_register_ability('linkedfetch/list-authors', $common(
+        'List forfattere af gemte LinkedIn-opslag',
+        'Lister forfattere med antal gemte opslag og datoen for deres nyeste opslag. Kan filtreres på navn, så man finder den præcise stavemåde.',
+        ['type' => 'object', 'properties' => [
+            'search' => ['type' => 'string', 'description' => 'Del af forfatternavnet.'],
+            'min_posts' => ['type' => 'integer', 'minimum' => 1, 'default' => 1],
+            'limit' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 200, 'default' => 50],
+            'offset' => ['type' => 'integer', 'minimum' => 0, 'default' => 0],
+        ]],
+        function ($input) {
+            global $wpdb;
+            $in = lf_ai_input($input);
+            $t = lf_table();
+            $where = "WHERE author <> ''";
+            $args = [];
+            if (!empty($in['search'])) {
+                $where .= ' AND author LIKE %s';
+                $args[] = '%' . $wpdb->esc_like(trim((string) $in['search'])) . '%';
+            }
+            $min = max(1, (int) ($in['min_posts'] ?? 1));
+            $limit = max(1, min(200, (int) ($in['limit'] ?? 50)));
+            $offset = max(0, (int) ($in['offset'] ?? 0));
+            $base = "FROM $t $where GROUP BY author HAVING COUNT(*) >= %d";
+            $total = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM (SELECT author $base) x", array_merge($args, [$min])));
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT author AS name, COUNT(*) AS count, MAX(posted) AS newest_posted $base ORDER BY count DESC, name ASC LIMIT %d OFFSET %d",
+                array_merge($args, [$min, $limit, $offset])
+            ), ARRAY_A);
+            foreach ($rows as &$r) {
+                $r['count'] = (int) $r['count'];
+            }
+            $next = $offset + count($rows);
+            return ['total' => $total, 'next_offset' => $next < $total ? $next : null, 'items' => $rows];
+        }
+    ));
+});
+
+// Læg værktøjerne på KEHA MCP-serveren (kræver KEHA MCP 0.4.0+)
+add_filter('keha_mcp_ability_names', function ($names) {
+    return array_merge((array) $names, lf_ability_names());
 });
 
 /* ---------- Dashboard på /linkedfetch ---------- */

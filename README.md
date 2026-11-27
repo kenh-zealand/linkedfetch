@@ -22,6 +22,21 @@ Af Kenneth Hansen, 2026.
 - Filtre: søgning, forfatter, opslagsdato (faste perioder eller egne datoer), tags (et af / alle), uden tags og kun med billede.
 - Tags: 18 standard-tags sættes automatisk ud fra nøgleord i teksten. Du kan selv sætte tags på hvert kort, oprette nye tags og rette navne, farver og nøgleord under "Administrer tags". Opslag, du selv har tagget, røres ikke af de automatiske tags.
 
+### AI-værktøjer via KEHA MCP (fra plugin 0.4.0)
+
+Pluginet har fire skrivebeskyttede værktøjer, så Claude kan søge i opslagene gennem forbindelsen til keha.dk uden at skrive databaseforespørgsler:
+
+| Værktøj | Hvad det gør |
+| --- | --- |
+| `linkedfetch/overview` | Antal opslag, periode, alle tags med antal og de mest gemte forfattere |
+| `linkedfetch/search-posts` | Søgning med fritekst, forfatter, tags (et af / alle), periode og kun med billede. Uddrag eller hele teksten, med sider |
+| `linkedfetch/get-posts` | Hele teksten for op til 25 opslag ud fra deres id |
+| `linkedfetch/list-authors` | Forfattere med antal opslag og dato for deres nyeste opslag |
+
+Værktøjerne kræver administrator og kan ikke ændre noget. De vises i MCP-serveren, når **KEHA MCP 0.4.0** eller nyere er installeret ([kenh-zealand/wordpress_mcp](https://github.com/kenh-zealand/wordpress_mcp)). Uden KEHA MCP virker pluginet som før.
+
+Test: `php tests/abilities.php` kører værktøjerne mod en lille testdatabase.
+
 ### Destination 2: Notion (valgfri)
 
 - Én side pr. opslag i databasen "LinkedIn – gemte opslag" med kolonnerne Titel, Nr, Forfatter, Link, Dato, Billede, Post-ID og Hentet.
@@ -61,4 +76,6 @@ Af Kenneth Hansen, 2026.
 ## Filer
 
 - `manifest.json`, `background.js`, `content.js`, `hook.js`, `options.html`, `options.js` – Chrome-udvidelsen
-- `wordpress-plugin/linkedfetch/linkedfetch.php` – WordPress-pluginet (REST-API og dashboard)
+- `wordpress-plugin/linkedfetch/linkedfetch.php` – WordPress-pluginet (REST-API, dashboard og AI-værktøjer)
+- `dist/linkedfetch-plugin.zip` – færdigpakket plugin til upload i WordPress
+- `tests/abilities.php` – test af AI-værktøjerne
