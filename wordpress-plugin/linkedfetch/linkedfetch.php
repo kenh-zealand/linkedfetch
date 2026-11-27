@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LinkedFetch – gemte LinkedIn-opslag
  * Description: Modtager gemte LinkedIn-opslag fra Chrome-udvidelsen "LinkedIn til Notion" og viser dem i et dashboard på /linkedfetch (kun for administratorer). Med automatiske og egne tags samt filtre.
- * Version: 0.2.0
+ * Version: 0.3.0
  * Author: Kenneth Hansen
  * License: GPL-2.0-or-later
  * Requires PHP: 7.4
@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const LF_VERSION = '0.2.0';
+const LF_VERSION = '0.3.0';
 const LF_DB_VERSION = '2';
 
 function lf_table() {
@@ -415,7 +415,6 @@ function lf_render_dashboard() {
         'tags' => lf_get_tags(),
         'api' => esc_url_raw(rest_url('linkedfetch/v1/')),
         'nonce' => wp_create_nonce('wp_rest'),
-        'version' => LF_VERSION,
     ];
     $json = wp_json_encode($boot, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
     ?><!DOCTYPE html>
@@ -424,123 +423,204 @@ function lf_render_dashboard() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
 <title>LinkedFetch – gemte opslag</title>
 <style>
-  :root { --bg:#0f1318; --card:#171d24; --line:#27303b; --text:#e6ebf0; --muted:#8c99a8; --accent:#3d8bfd; }
+  :root {
+    --page:#e9edf1; --surface:#ffffff; --raised:#f6f8fa; --ink:#18212b; --muted:#5b6876; --faint:#8a96a3;
+    --line:#d4dbe2; --accent:#0d6b72; --accent-ink:#ffffff; --sel:#e2f0f0; --mark:#fbe8a6;
+    --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --read: "Iowan Old Style", Charter, "Bitstream Charter", Cambria, Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --page:#12171d; --surface:#1a2129; --raised:#202832; --ink:#e4e9ee; --muted:#9aa7b4; --faint:#6f7c89;
+            --line:#2c3642; --accent:#4fb3b9; --accent-ink:#0c1a1c; --sel:#1e3438; --mark:#5c4b13; }
+  }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
-  header { position:sticky; top:0; z-index:5; background:rgba(15,19,24,.96); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); padding:12px 20px 10px; }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .row + .row { margin-top:10px; }
-  h1 { font-size:20px; margin:0; font-weight:650; }
-  .ver { color:var(--muted); font-size:12px; }
-  .count { background:#222b35; border-radius:99px; padding:2px 10px; color:var(--muted); font-size:13px; }
-  .spacer { flex:1; }
-  input, select, button { font:inherit; }
-  input[type=search], input[type=date], select { background:#11171d; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
-  input[type=search] { width:min(300px,100%); }
-  .btn { background:#1d252e; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
-  .btn:hover { border-color:#3a4655; }
-  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .lbl { color:var(--muted); font-size:13px; }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; }
-  .chip { --c:#64748b; border:1px solid color-mix(in srgb, var(--c) 55%, transparent); background:color-mix(in srgb, var(--c) 14%, transparent);
-          color:var(--text); border-radius:99px; padding:2px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
-  .chip.on { background:var(--c); border-color:var(--c); color:#fff; }
-  .chip .n { opacity:.65; margin-left:4px; }
-  main { max-width:1600px; margin:0 auto; padding:18px 20px; columns:4 250px; column-gap:14px; }
-  main.big { columns:2 380px; column-gap:20px; font-size:15px; }
-  .card { break-inside:avoid; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:0 0 14px; }
-  .head { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
-  .av { width:28px; height:28px; border-radius:50%; background:#2a3542; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:12px; color:#b8c4d0; flex:none; }
-  .who { font-weight:600; font-size:13px; line-height:1.3; }
-  .meta { color:var(--muted); font-size:12px; }
-  .text { white-space:pre-wrap; word-wrap:break-word; }
-  .text.clamp { display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; }
-  main.big .text.clamp { -webkit-line-clamp:7; }
-  .more { background:none; border:0; color:var(--accent); padding:2px 0; cursor:pointer; font-weight:600; font-size:13px; }
-  .img { margin-top:8px; width:100%; max-height:170px; object-fit:cover; border-radius:8px; display:block; background:#0b0f13; cursor:zoom-in; }
-  .img.full, main.big .img { max-height:none; object-fit:contain; cursor:zoom-out; }
-  .tags { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; align-items:center; }
-  .tags .chip { cursor:default; font-size:11px; padding:1px 8px; }
-  .addtag { background:none; border:1px dashed #3a4655; color:var(--muted); border-radius:99px; padding:0 8px; font-size:11px; cursor:pointer; }
-  .foot { margin-top:8px; font-size:12px; display:flex; justify-content:space-between; }
-  a { color:var(--accent); text-decoration:none; }
-  a:hover { text-decoration:underline; }
-  .empty { color:var(--muted); text-align:center; padding:60px 0; column-span:all; }
-  mark { background:#5a4a12; color:inherit; border-radius:3px; }
-  .pop { position:absolute; z-index:20; background:#1b222b; border:1px solid #3a4655; border-radius:10px; padding:10px; width:250px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
-  .pop label { display:flex; gap:6px; align-items:center; padding:2px 0; font-size:13px; cursor:pointer; }
-  .pop .list { max-height:260px; overflow:auto; margin-bottom:8px; }
-  .pop input[type=text] { width:100%; background:#11171d; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 8px; margin-bottom:8px; }
-  .pop .acts { display:flex; gap:6px; justify-content:space-between; align-items:center; }
-  .pop .reset { color:var(--muted); font-size:12px; background:none; border:0; cursor:pointer; padding:0; }
-  dialog { background:#151b22; color:var(--text); border:1px solid #3a4655; border-radius:14px; width:min(900px,95vw); padding:0; }
-  dialog::backdrop { background:rgba(0,0,0,.6); }
-  .dlg-h { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; }
+  [hidden] { display:none !important; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--page); color:var(--ink); font:14px/1.45 var(--ui); }
+  button, input, select, textarea { font:inherit; color:inherit; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  a { color:var(--accent); }
+
+  .app { display:grid; grid-template-columns:250px minmax(0,1fr); height:100vh; }
+  .app.reading { grid-template-columns:250px minmax(340px,1fr) minmax(420px,1.15fr); }
+
+  /* Venstre: filtre */
+  .side { overflow-y:auto; overflow-x:hidden; padding:18px 16px 24px; border-right:1px solid var(--line); }
+  .brand { display:flex; align-items:baseline; gap:8px; margin:0 0 18px; }
+  .brand h1 { font-size:17px; margin:0; letter-spacing:-.01em; }
+  .brand span { color:var(--faint); font-size:12px; }
+  .side h2 { font-size:12.5px; font-weight:650; color:var(--muted); margin:20px 0 6px; }
+  .opt { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:none; border:0; border-radius:6px;
+         padding:4px 6px; cursor:pointer; color:var(--ink); }
+  .opt:hover { background:var(--raised); }
+  .opt.on { background:var(--sel); font-weight:600; }
+  .opt .n { margin-left:auto; color:var(--faint); font-size:12px; font-variant-numeric:tabular-nums; }
+  .dot { width:9px; height:9px; border-radius:50%; flex:none; background:var(--c,#888); }
+  .side select, .side input[type=date], .side input[type=search] { width:100%; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:5px 8px; }
+  .dates { display:grid; grid-template-columns:1fr; gap:6px; margin-top:6px; }
+  .mode { display:flex; gap:4px; margin:2px 0 6px; }
+  .mode button { flex:1; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:3px 0; font-size:12px; cursor:pointer; }
+  .mode button.on { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .linkbtn { background:none; border:0; color:var(--accent); cursor:pointer; padding:4px 6px; font-size:13px; }
+  .check { display:flex; gap:8px; align-items:center; padding:4px 6px; cursor:pointer; }
+
+  /* Midten: resultater */
+  .results { display:flex; flex-direction:column; min-width:0; height:100vh; }
+  .bar { padding:14px 18px 10px; border-bottom:1px solid var(--line); background:var(--page); }
+  .searchrow { display:flex; gap:8px; align-items:center; }
+  .searchrow input { flex:1; min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:15px; }
+  .searchrow select { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:7px 8px; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { background:var(--surface); border:0; padding:7px 10px; cursor:pointer; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:var(--accent); color:var(--accent-ink); }
+  .summary { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:10px; min-height:24px; }
+  .summary .count { color:var(--muted); margin-right:4px; font-variant-numeric:tabular-nums; }
+  .pill { display:inline-flex; gap:6px; align-items:center; background:var(--surface); border:1px solid var(--line); border-radius:99px; padding:1px 4px 1px 10px; font-size:12.5px; }
+  .pill button { background:none; border:0; cursor:pointer; color:var(--muted); width:20px; height:20px; border-radius:50%; }
+  .pill button:hover { background:var(--raised); color:var(--ink); }
+  .scroll { overflow:auto; flex:1; padding:12px 18px 40px; }
+  .empty { color:var(--muted); padding:48px 8px; text-align:center; }
+
+  /* Liste */
+  .list .item { display:grid; grid-template-columns:minmax(0,1fr) 84px; gap:14px; padding:11px 12px; border-radius:8px;
+                cursor:pointer; border:1px solid transparent; background:var(--surface); margin-bottom:6px; }
+  .list .item.noimg { grid-template-columns:minmax(0,1fr); }
+  .list .thumb { width:84px; height:64px; border-radius:6px; object-fit:cover; background:var(--raised); }
+  /* Gitter */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:12px; align-items:start; }
+  .grid .item { background:var(--surface); border:1px solid transparent; border-radius:10px; overflow:hidden; cursor:pointer; }
+  .grid .thumb { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; background:var(--raised); }
+  .grid .body { padding:10px 12px 12px; }
+  .item:hover { border-color:var(--line); }
+  .item.on { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .who { display:flex; gap:8px; align-items:baseline; min-width:0; }
+  .who b { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .who time { color:var(--faint); font-size:12px; white-space:nowrap; margin-left:auto; }
+  .ex { color:var(--muted); margin-top:3px; display:-webkit-box; -webkit-box-orient:vertical; overflow:hidden; -webkit-line-clamp:2; }
+  .grid .ex { -webkit-line-clamp:3; }
+  .tagline { display:flex; gap:4px 10px; flex-wrap:wrap; margin-top:6px; font-size:12px; color:var(--muted); }
+  .tagline span { display:inline-flex; align-items:center; gap:5px; }
+  mark { background:var(--mark); color:inherit; border-radius:2px; }
+
+  /* Højre: læsepanel */
+  .reader { display:none; overflow:auto; background:var(--surface); border-left:1px solid var(--line); height:100vh; }
+  .app.reading .reader { display:block; }
+  .rtop { position:sticky; top:0; display:flex; gap:6px; align-items:center; padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--line); z-index:2; }
+  .rtop .sp { flex:1; }
+  .iconbtn { background:none; border:1px solid var(--line); border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .iconbtn:hover { background:var(--raised); }
+  .article { max-width:66ch; margin:0 auto; padding:24px 28px 60px; }
+  .article .by { font-size:18px; font-weight:650; margin:0; }
+  .article .when { color:var(--muted); margin-top:2px; }
+  .article .text { font:17px/1.62 var(--read); white-space:pre-wrap; word-wrap:break-word; margin-top:18px; }
+  .article img { width:100%; border-radius:8px; margin-top:18px; display:block; }
+  .article .src { display:inline-block; margin-top:18px; }
+  .tagedit { margin-top:26px; padding-top:16px; border-top:1px solid var(--line); }
+  .tagedit h3 { font-size:13px; margin:0 0 8px; color:var(--muted); font-weight:650; }
+  .tchips { display:flex; flex-wrap:wrap; gap:6px; }
+  .tchip { --c:#888; display:inline-flex; gap:6px; align-items:center; border:1px solid var(--line); background:var(--raised); border-radius:99px;
+           padding:3px 10px; cursor:pointer; font-size:13px; }
+  .tchip.on { background:color-mix(in srgb, var(--c) 18%, var(--surface)); border-color:var(--c); font-weight:600; }
+  .tagnew { display:flex; gap:6px; margin-top:10px; }
+  .tagnew input { flex:1; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:5px 8px; }
+  .note { color:var(--faint); font-size:12.5px; margin-top:8px; }
+
+  /* Tag-administration */
+  dialog { background:var(--surface); color:var(--ink); border:1px solid var(--line); border-radius:12px; width:min(900px,95vw); padding:0; }
+  dialog::backdrop { background:rgba(10,15,20,.55); }
+  .dlg-h, .dlg-f { padding:14px 18px; display:flex; gap:10px; align-items:center; }
+  .dlg-h { border-bottom:1px solid var(--line); }
+  .dlg-f { border-top:1px solid var(--line); justify-content:flex-end; }
   .dlg-b { padding:12px 18px; max-height:65vh; overflow:auto; }
-  .dlg-f { padding:12px 18px; border-top:1px solid var(--line); display:flex; gap:8px; justify-content:flex-end; align-items:center; }
-  .trow { display:grid; grid-template-columns:36px 190px 1fr 46px 32px; gap:8px; align-items:start; padding:6px 0; border-bottom:1px solid #1f2731; }
-  .trow input[type=text], .trow textarea { width:100%; background:#11171d; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; font-size:13px; }
+  .trow { display:grid; grid-template-columns:36px 190px 1fr 46px 32px; gap:8px; align-items:start; padding:6px 0; border-bottom:1px solid var(--line); }
+  .trow input[type=text], .trow textarea { width:100%; background:var(--page); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:13px; }
   .trow textarea { min-height:34px; resize:vertical; }
   .trow input[type=color] { width:34px; height:30px; border:0; background:none; padding:0; }
   .trow .n { color:var(--muted); font-size:12px; padding-top:6px; text-align:right; }
-  .del { background:none; border:0; color:#ef6b6b; cursor:pointer; font-size:18px; line-height:1; padding-top:4px; }
-  .hint { color:var(--muted); font-size:12px; }
-  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#22303d; border:1px solid #3a4655; padding:8px 14px; border-radius:8px; display:none; z-index:30; }
+  .del { background:none; border:0; color:#d14b4b; cursor:pointer; font-size:18px; padding-top:4px; }
+  .primary { background:var(--accent); color:var(--accent-ink); border:0; border-radius:8px; padding:7px 14px; cursor:pointer; font-weight:600; }
+  .hint { color:var(--muted); font-size:12.5px; }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--page); padding:8px 14px; border-radius:8px; display:none; z-index:30; }
+
+  /* Smalle skærme */
+  .filterbtn { display:none; }
+  @media (max-width: 1100px) {
+    .app.reading { grid-template-columns:250px minmax(0,1fr); }
+    .app.reading .reader { position:fixed; inset:0 0 0 auto; width:min(640px,100vw); z-index:10; box-shadow:-10px 0 30px rgba(0,0,0,.25); }
+  }
+  @media (max-width: 760px) {
+    .app, .app.reading { grid-template-columns:minmax(0,1fr); }
+    .side { display:none; position:fixed; inset:0; z-index:12; background:var(--page); }
+    .side.open { display:block; }
+    .filterbtn { display:inline-block; }
+  }
+  @media (prefers-reduced-motion: no-preference) { .reader { animation:none; } }
 </style>
 </head>
 <body>
-<header>
-  <div class="row">
-    <h1>LinkedFetch</h1>
-    <span class="count" id="count"></span>
-    <span class="ver">v<?php echo esc_html(LF_VERSION); ?></span>
-    <span class="spacer"></span>
-    <input type="search" id="q" placeholder="Søg i tekst og forfatter…">
-    <select id="author"><option value="">Alle forfattere</option></select>
-    <select id="sort">
-      <option value="nr">Senest gemt</option>
-      <option value="date">Nyeste opslag</option>
-      <option value="old">Ældste opslag</option>
-    </select>
-    <button class="btn" id="size" title="Skift kortstørrelse">Store kort</button>
-    <button class="btn" id="manage">Administrer tags</button>
-  </div>
-  <div class="row">
-    <span class="lbl">Opslagsdato</span>
-    <select id="period">
-      <option value="">Alle</option>
-      <option value="7">Seneste 7 dage</option>
-      <option value="30">Seneste 30 dage</option>
-      <option value="90">Seneste 3 måneder</option>
-      <option value="365">Seneste år</option>
-      <option value="year">I år</option>
-      <option value="custom">Vælg datoer…</option>
-    </select>
-    <span id="customDates" hidden>
-      <input type="date" id="from" aria-label="Fra dato"> – <input type="date" id="to" aria-label="Til dato">
-    </span>
-    <label class="lbl"><input type="checkbox" id="imgOnly"> Kun med billede</label>
-    <span class="spacer"></span>
-    <span class="lbl">Tags skal</span>
-    <select id="tagMode"><option value="any">matche et af de valgte</option><option value="all">matche alle valgte</option></select>
-    <button class="btn" id="clear">Ryd filtre</button>
-  </div>
-  <div class="row"><div class="chips" id="tagChips"></div></div>
-</header>
-<main id="list"></main>
-<div id="toast"></div>
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="Filtre">
+    <div class="brand"><h1>LinkedFetch</h1><span>v<?php echo esc_html(LF_VERSION); ?></span></div>
+
+    <h2>Opslagsdato</h2>
+    <div id="periods"></div>
+    <div class="dates" id="dates" hidden>
+      <input type="date" id="from" aria-label="Fra dato"><input type="date" id="to" aria-label="Til dato">
+    </div>
+
+    <h2>Tags</h2>
+    <div class="mode" role="group" aria-label="Hvordan valgte tags skal matche">
+      <button data-mode="any" class="on" title="Vis opslag med mindst ét af de valgte tags">Et af dem</button>
+      <button data-mode="all" title="Vis kun opslag med alle valgte tags">Alle</button>
+    </div>
+    <div id="tagList"></div>
+    <button class="linkbtn" id="manage">Administrer tags</button>
+
+    <h2>Forfatter</h2>
+    <input type="search" id="authorSearch" placeholder="Find forfatter">
+    <div id="authorList"></div>
+
+    <h2>Andet</h2>
+    <label class="check"><input type="checkbox" id="imgOnly"> Kun med billede</label>
+    <button class="linkbtn filterbtn" id="closeSide">Vis opslag</button>
+  </aside>
+
+  <section class="results">
+    <div class="bar">
+      <div class="searchrow">
+        <button class="iconbtn filterbtn" id="openSide">Filtre</button>
+        <input type="search" id="q" placeholder="Søg i opslag (tryk /)" aria-label="Søg i opslag">
+        <select id="sort" aria-label="Sortering">
+          <option value="nr">Senest gemt</option>
+          <option value="date">Nyeste opslag</option>
+          <option value="old">Ældste opslag</option>
+        </select>
+        <div class="seg" role="group" aria-label="Visning">
+          <button data-view="list" class="on">Liste</button><button data-view="grid">Gitter</button>
+        </div>
+      </div>
+      <div class="summary" id="summary"></div>
+    </div>
+    <div class="scroll" id="scroll"><div id="out" class="list"></div></div>
+  </section>
+
+  <article class="reader" id="reader" aria-label="Opslag"></article>
+</div>
 
 <dialog id="dlg">
-  <div class="dlg-h"><strong>Administrer tags</strong><span class="spacer"></span><button class="btn" id="dlgClose">Luk</button></div>
+  <div class="dlg-h"><strong>Administrer tags</strong><span style="flex:1"></span><button class="iconbtn" id="dlgClose">Luk</button></div>
   <div class="dlg-b">
-    <p class="hint">Nøgleord adskilles med komma. Et nøgleord matcher begyndelsen af et ord i opslaget, fx matcher "agent" både "agenter" og "agentic". Nøgleord på 3 tegn eller færre skal være et helt ord. Opslag, hvor du selv har ændret tags, røres ikke af de automatiske tags.</p>
+    <p class="hint">Nøgleord adskilles med komma. Et nøgleord matcher begyndelsen af et ord i opslaget, fx matcher "agent" både "agenter" og "agentic". Nøgleord på 3 tegn eller færre skal være et helt ord. Opslag, hvor du selv har valgt tags, ændres ikke af de automatiske tags.</p>
     <div id="tagRows"></div>
-    <button class="btn" id="addRow" style="margin-top:10px">+ Nyt tag</button>
+    <button class="iconbtn" id="addRow" style="margin-top:10px">Nyt tag</button>
   </div>
-  <div class="dlg-f"><span class="hint" id="dlgMsg"></span><button class="btn primary" id="dlgSave">Gem og opdater automatiske tags</button></div>
+  <div class="dlg-f"><span class="hint" id="dlgMsg" style="margin-right:auto"></span><button class="primary" id="dlgSave">Gem og opdater automatiske tags</button></div>
 </dialog>
+<div id="toast" role="status"></div>
 
 <script id="lf-data" type="application/json"><?php echo $json; ?></script>
 <script>
@@ -550,237 +630,300 @@ function lf_render_dashboard() {
   let defs = boot.tags;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  const fmt = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('da-DK', { day:'numeric', month:'short', year:'numeric' }) : '';
-  const color = (name) => (defs.find((d) => d.name === name) || {}).color || '#64748b';
+  const fmt = (d, long) => d ? new Date(d + 'T12:00:00').toLocaleDateString('da-DK', long ? { day:'numeric', month:'long', year:'numeric' } : { day:'numeric', month:'short', year:'numeric' }) : '';
+  const color = (name) => (defs.find((d) => d.name === name) || {}).color || '#8a96a3';
   const store = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
                   set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} } };
-
-  function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2600); }
+  const toast = (m) => { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 2400); };
 
   async function api(path, body) {
     const r = await fetch(boot.api + path, { method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-WP-Nonce': boot.nonce }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.message || ('Fejl ' + r.status));
+    if (!r.ok) throw new Error(j.message || ('fejl ' + r.status));
     return j;
   }
 
-  /* ---- Filtre ---- */
-  const selTags = new Set();
-
-  function buildAuthors() {
-    const counts = {};
-    all.forEach((p) => { if (p.a) counts[p.a] = (counts[p.a] || 0) + 1; });
-    Object.entries(counts).sort((x, y) => y[1] - x[1]).forEach(([a, n]) => {
-      const o = document.createElement('option'); o.value = a; o.textContent = `${a} (${n})`; $('author').appendChild(o);
-    });
-  }
-
-  function buildTagChips() {
-    const counts = {};
-    all.forEach((p) => p.g.forEach((g) => counts[g] = (counts[g] || 0) + 1));
-    const untagged = all.filter((p) => !p.g.length).length;
-    const box = $('tagChips'); box.innerHTML = '';
-    const mk = (key, label, c, n) => {
-      const b = document.createElement('button');
-      b.className = 'chip' + (selTags.has(key) ? ' on' : ''); b.style.setProperty('--c', c);
-      b.innerHTML = `${esc(label)}<span class="n">${n}</span>`;
-      b.onclick = () => { selTags.has(key) ? selTags.delete(key) : selTags.add(key); buildTagChips(); apply(); };
-      box.appendChild(b);
-    };
-    [...defs].sort((x, y) => (counts[y.name] || 0) - (counts[x.name] || 0)).forEach((d) => mk(d.name, d.name, d.color, counts[d.name] || 0));
-    mk('__none', 'Uden tags', '#475569', untagged);
-  }
-
-  function dateRange() {
-    const v = $('period').value, today = new Date();
-    const iso = (d) => d.toISOString().slice(0, 10);
-    if (!v) return [null, null];
-    if (v === 'custom') return [$('from').value || null, $('to').value || null];
-    if (v === 'year') return [today.getFullYear() + '-01-01', null];
-    const d = new Date(today); d.setDate(d.getDate() - Number(v)); return [iso(d), null];
-  }
-
+  /* ---------- Tilstand ---------- */
+  const st = { q: '', period: '', from: '', to: '', tags: new Set(), mode: 'any', author: '', imgOnly: false,
+               sort: 'nr', view: store.get('lf-view') || 'list', open: null };
   let shown = [], rendered = 0;
-  const PAGE = 40;
+  const PAGE = 50;
 
-  function apply() {
-    const q = $('q').value.trim().toLowerCase();
-    const a = $('author').value, s = $('sort').value, imgOnly = $('imgOnly').checked;
-    const [from, to] = dateRange();
-    const tags = [...selTags], mode = $('tagMode').value;
-    shown = all.filter((p) => {
-      if (a && p.a !== a) return false;
-      if (imgOnly && !p.i) return false;
-      if (from && (!p.d || p.d < from)) return false;
-      if (to && (!p.d || p.d > to)) return false;
-      if (q && !(p.t + ' ' + p.a).toLowerCase().includes(q)) return false;
-      if (tags.length) {
-        const has = (t) => t === '__none' ? !p.g.length : p.g.includes(t);
-        if (mode === 'all' ? !tags.every(has) : !tags.some(has)) return false;
-      }
-      return true;
-    });
-    if (s === 'date') shown.sort((x, y) => (y.d || '').localeCompare(x.d || ''));
-    else if (s === 'old') shown.sort((x, y) => (x.d || '').localeCompare(y.d || ''));
-    else shown.sort((x, y) => y.nr - x.nr);
-    $('count').textContent = shown.length === all.length ? `${all.length} opslag` : `${shown.length} af ${all.length}`;
-    $('list').innerHTML = shown.length ? '' : '<div class="empty">Ingen opslag matcher filtrene.</div>';
-    rendered = 0;
-    renderMore();
+  const PERIODS = [['', 'Alle'], ['7', 'Seneste 7 dage'], ['30', 'Seneste 30 dage'], ['90', 'Seneste 3 måneder'],
+                   ['365', 'Seneste år'], ['year', 'I år'], ['custom', 'Vælg datoer']];
+
+  function range() {
+    const today = new Date(), iso = (d) => d.toISOString().slice(0, 10);
+    if (!st.period) return [null, null];
+    if (st.period === 'custom') return [st.from || null, st.to || null];
+    if (st.period === 'year') return [today.getFullYear() + '-01-01', null];
+    const d = new Date(today); d.setDate(d.getDate() - Number(st.period)); return [iso(d), null];
   }
 
-  /* ---- Kort ---- */
-  function highlight(text, q) {
+  function matches(p, skip) {
+    const [from, to] = range();
+    if (skip !== 'author' && st.author && p.a !== st.author) return false;
+    if (st.imgOnly && !p.i) return false;
+    if (from && (!p.d || p.d < from)) return false;
+    if (to && (!p.d || p.d > to)) return false;
+    if (st.q && !(p.t + ' ' + p.a).toLowerCase().includes(st.q.toLowerCase())) return false;
+    if (skip !== 'tags' && st.tags.size) {
+      const has = (t) => t === '__none' ? !p.g.length : p.g.includes(t);
+      const sel = [...st.tags];
+      if (st.mode === 'all' ? !sel.every(has) : !sel.some(has)) return false;
+    }
+    return true;
+  }
+
+  /* ---------- Venstre kolonne ---------- */
+  function renderSide() {
+    $('periods').innerHTML = PERIODS.map(([v, l]) =>
+      `<button class="opt${st.period === v ? ' on' : ''}" data-period="${v}">${l}</button>`).join('');
+    $('dates').hidden = st.period !== 'custom';
+
+    // Tag-tal regnes ud fra de øvrige filtre, så tallene viser, hvad et klik giver
+    const base = all.filter((p) => matches(p, 'tags'));
+    const counts = {}; let none = 0;
+    base.forEach((p) => { p.g.forEach((g) => counts[g] = (counts[g] || 0) + 1); if (!p.g.length) none++; });
+    const tagBtn = (key, label, c, n) => `<button class="opt${st.tags.has(key) ? ' on' : ''}" data-tag="${esc(key)}" aria-pressed="${st.tags.has(key)}">
+        <span class="dot" style="--c:${esc(c)}"></span>${esc(label)}<span class="n">${n}</span></button>`;
+    $('tagList').innerHTML = [...defs].sort((x, y) => (counts[y.name] || 0) - (counts[x.name] || 0) || x.name.localeCompare(y.name, 'da'))
+      .map((d) => tagBtn(d.name, d.name, d.color, counts[d.name] || 0)).join('') + tagBtn('__none', 'Uden tags', 'transparent', none);
+    document.querySelectorAll('.mode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === st.mode));
+
+    const aBase = all.filter((p) => matches(p, 'author'));
+    const ac = {}; aBase.forEach((p) => { if (p.a) ac[p.a] = (ac[p.a] || 0) + 1; });
+    const term = $('authorSearch').value.trim().toLowerCase();
+    let authors = Object.entries(ac).sort((x, y) => y[1] - x[1]);
+    authors = term ? authors.filter(([a]) => a.toLowerCase().includes(term)) : authors.slice(0, 12);
+    if (st.author && !authors.some(([a]) => a === st.author)) authors.unshift([st.author, ac[st.author] || 0]);
+    $('authorList').innerHTML = authors.map(([a, n]) =>
+      `<button class="opt${st.author === a ? ' on' : ''}" data-author="${esc(a)}">${esc(a)}<span class="n">${n}</span></button>`).join('')
+      || '<div class="note">Ingen forfattere matcher.</div>';
+  }
+
+  /* ---------- Resultater ---------- */
+  function highlight(text) {
     const safe = esc(text);
-    if (!q) return safe;
-    const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    if (!st.q) return safe;
+    const re = new RegExp('(' + st.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
     return safe.replace(re, '<mark>$1</mark>');
   }
 
-  function tagHtml(p) {
-    return p.g.map((g) => `<span class="chip" style="--c:${esc(color(g))}">${esc(g)}</span>`).join('') +
-      `<button class="addtag" title="Rediger tags">${p.g.length ? 'Rediger' : '+ tag'}</button>`;
+  function excerpt(t) {
+    const flat = t.replace(/\s+/g, ' ').trim();
+    if (!st.q) return flat.slice(0, 320);
+    const i = flat.toLowerCase().indexOf(st.q.toLowerCase());
+    return i > 80 ? '…' + flat.slice(i - 60, i + 260) : flat.slice(0, 320);
   }
 
-  function card(p, q) {
-    const el = document.createElement('article');
-    el.className = 'card';
-    el.innerHTML = `
-      <div class="head">
-        <div class="av">${esc((p.a || '?').trim().charAt(0).toUpperCase())}</div>
-        <div><div class="who">${highlight(p.a || 'Ukendt', q)}</div>
-        <div class="meta">${fmt(p.d)}${p.nr ? ' · nr. ' + p.nr : ''}</div></div>
-      </div>
-      <div class="text clamp">${highlight(p.t, q)}</div>
-      <button class="more" hidden>Se mere</button>
-      ${p.i ? `<img class="img" loading="lazy" src="${esc(p.i)}" alt="">` : ''}
-      <div class="tags">${tagHtml(p)}</div>
-      <div class="foot"><a href="${esc(p.u)}" target="_blank" rel="noopener">Åbn på LinkedIn</a></div>`;
-    const text = el.querySelector('.text'), more = el.querySelector('.more');
-    requestAnimationFrame(() => { if (text.scrollHeight > text.clientHeight + 2) more.hidden = false; });
-    more.onclick = () => { const c = text.classList.toggle('clamp'); more.textContent = c ? 'Se mere' : 'Se mindre'; };
-    const img = el.querySelector('.img'); if (img) img.onclick = () => img.classList.toggle('full');
-    const wire = () => el.querySelector('.addtag').onclick = (e) => openTagPop(p, e.currentTarget, () => { el.querySelector('.tags').innerHTML = tagHtml(p); wire(); });
-    wire();
-    return el;
+  function itemHtml(p) {
+    const first = p.g.slice(0, 3), rest = p.g.length - first.length;
+    const tags = p.g.length ? `<div class="tagline">${first.map((g) => `<span><i class="dot" style="--c:${esc(color(g))}"></i>${esc(g)}</span>`).join('')}${rest > 0 ? `<span title="${esc(p.g.slice(3).join(', '))}">+${rest}</span>` : ''}</div>` : '';
+    const head = `<div class="who"><b>${highlight(p.a || 'Ukendt')}</b><time datetime="${esc(p.d || '')}">${fmt(p.d)}</time></div>
+      <div class="ex">${highlight(excerpt(p.t))}</div>${tags}`;
+    const img = p.i ? `<img class="thumb" loading="lazy" src="${esc(p.i)}" alt="">` : '';
+    return st.view === 'grid' ? `${img}<div class="body">${head}</div>` : `<div>${head}</div>${img}`;
   }
 
   function renderMore() {
-    const q = $('q').value.trim();
     const frag = document.createDocumentFragment();
-    shown.slice(rendered, rendered + PAGE).forEach((p) => frag.appendChild(card(p, q)));
+    shown.slice(rendered, rendered + PAGE).forEach((p) => {
+      const el = document.createElement('div');
+      el.className = 'item' + (p.i ? '' : ' noimg') + (st.open === p ? ' on' : '');
+      el.tabIndex = 0; el.dataset.id = p.id;
+      el.innerHTML = itemHtml(p);
+      el.onclick = () => openPost(p);
+      el.onkeydown = (e) => { if (e.key === 'Enter') openPost(p); };
+      frag.appendChild(el);
+    });
     rendered += PAGE;
-    $('list').appendChild(frag);
+    $('out').appendChild(frag);
   }
 
-  /* ---- Tags på ét kort ---- */
-  let pop = null;
-  function closePop() { if (pop) { pop.remove(); pop = null; } }
-  document.addEventListener('click', (e) => { if (pop && !pop.contains(e.target) && !e.target.classList.contains('addtag')) closePop(); });
+  function renderSummary() {
+    const pills = [];
+    const add = (label, clear) => pills.push({ label, clear });
+    if (st.q) add(`Søgning: ${st.q}`, () => { st.q = ''; $('q').value = ''; });
+    if (st.period) add(st.period === 'custom' ? `Datoer: ${st.from || '…'} til ${st.to || '…'}` : PERIODS.find(([v]) => v === st.period)[1], () => { st.period = ''; });
+    st.tags.forEach((t) => add(t === '__none' ? 'Uden tags' : t, () => st.tags.delete(t)));
+    if (st.author) add(st.author, () => { st.author = ''; });
+    if (st.imgOnly) add('Kun med billede', () => { st.imgOnly = false; $('imgOnly').checked = false; });
+    const box = $('summary');
+    box.innerHTML = `<span class="count">${shown.length === all.length ? all.length + ' opslag' : shown.length + ' af ' + all.length + ' opslag'}</span>` +
+      pills.map((p, i) => `<span class="pill">${esc(p.label)}<button data-i="${i}" aria-label="Fjern filter ${esc(p.label)}">×</button></span>`).join('') +
+      (pills.length > 1 ? '<button class="linkbtn" data-clear="all">Ryd alle</button>' : '');
+    box.querySelectorAll('.pill button').forEach((b) => b.onclick = () => { pills[b.dataset.i].clear(); update(); });
+    const ca = box.querySelector('[data-clear]');
+    if (ca) ca.onclick = () => { pills.forEach((p) => p.clear()); update(); };
+  }
 
-  function openTagPop(p, anchor, done) {
-    closePop();
-    pop = document.createElement('div'); pop.className = 'pop';
-    const chosen = new Set(p.g);
-    const list = () => defs.map((d) => `<label><input type="checkbox" value="${esc(d.name)}" ${chosen.has(d.name) ? 'checked' : ''}>
-      <span class="chip" style="--c:${esc(d.color)}">${esc(d.name)}</span></label>`).join('');
-    pop.innerHTML = `<input type="text" placeholder="Nyt tag – tryk Enter"><div class="list">${list()}</div>
-      <div class="acts"><button class="reset" title="Brug de automatiske tags igen">${p.l ? 'Brug automatiske tags' : 'Automatiske tags'}</button>
-      <button class="btn primary">Gem</button></div>`;
-    document.body.appendChild(pop);
-    const r = anchor.getBoundingClientRect();
-    pop.style.top = (scrollY + r.bottom + 6) + 'px';
-    pop.style.left = Math.min(scrollX + r.left, scrollX + innerWidth - 270) + 'px';
-    const sync = () => pop.querySelectorAll('.list input').forEach((c) => c.onchange = () => c.checked ? chosen.add(c.value) : chosen.delete(c.value));
-    sync();
-    const inp = pop.querySelector('input[type=text]'); inp.focus();
-    inp.onkeydown = async (e) => {
-      if (e.key !== 'Enter') return;
-      const name = inp.value.trim().replace(/\s+/g, ' ').slice(0, 40);
+  function update() {
+    shown = all.filter((p) => matches(p));
+    if (st.sort === 'date') shown.sort((x, y) => (y.d || '').localeCompare(x.d || ''));
+    else if (st.sort === 'old') shown.sort((x, y) => (x.d || '').localeCompare(y.d || ''));
+    else shown.sort((x, y) => y.nr - x.nr);
+    $('out').className = st.view;
+    $('out').innerHTML = shown.length ? '' : '<div class="empty">Ingen opslag matcher. Fjern et filter eller ret søgningen.</div>';
+    rendered = 0;
+    renderMore();
+    $('scroll').scrollTop = 0;
+    renderSide();
+    renderSummary();
+    document.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.view === st.view));
+  }
+
+  /* ---------- Læsepanel ---------- */
+  function openPost(p) {
+    st.open = p;
+    $('app').classList.add('reading');
+    document.querySelectorAll('.item.on').forEach((e) => e.classList.remove('on'));
+    const el = document.querySelector(`.item[data-id="${CSS.escape(p.id)}"]`);
+    if (el) { el.classList.add('on'); el.scrollIntoView({ block: 'nearest' }); }
+    renderReader();
+  }
+
+  function closeReader() {
+    st.open = null; $('app').classList.remove('reading');
+    document.querySelectorAll('.item.on').forEach((e) => e.classList.remove('on'));
+  }
+
+  function step(dir) {
+    if (!shown.length) return;
+    let i = st.open ? shown.indexOf(st.open) : -1;
+    i = Math.max(0, Math.min(shown.length - 1, i + dir));
+    while (i >= rendered) renderMore();
+    openPost(shown[i]);
+  }
+
+  function renderReader() {
+    const p = st.open; if (!p) return;
+    const i = shown.indexOf(p);
+    $('reader').innerHTML = `
+      <div class="rtop">
+        <button class="iconbtn" data-act="prev" ${i <= 0 ? 'disabled' : ''} aria-label="Forrige opslag">Forrige</button>
+        <button class="iconbtn" data-act="next" ${i < 0 || i >= shown.length - 1 ? 'disabled' : ''} aria-label="Næste opslag">Næste</button>
+        <span class="sp"></span>
+        <a class="iconbtn" href="${esc(p.u)}" target="_blank" rel="noopener">Åbn på LinkedIn</a>
+        <button class="iconbtn" data-act="close" aria-label="Luk opslag">Luk</button>
+      </div>
+      <div class="article">
+        <p class="by">${esc(p.a || 'Ukendt')}</p>
+        <div class="when">${p.d ? 'Opslået ' + fmt(p.d, true) : 'Dato ukendt'}${p.nr ? `, gemt som nr. ${p.nr}` : ''}</div>
+        <div class="text">${highlight(p.t)}</div>
+        ${p.i ? `<img src="${esc(p.i)}" alt="Billede fra opslaget">` : ''}
+        <div class="tagedit">
+          <h3>Tags</h3>
+          <div class="tchips">${defs.map((d) => `<button class="tchip${p.g.includes(d.name) ? ' on' : ''}" style="--c:${esc(d.color)}" data-t="${esc(d.name)}" aria-pressed="${p.g.includes(d.name)}">
+            <span class="dot"></span>${esc(d.name)}</button>`).join('')}</div>
+          <div class="tagnew"><input type="text" id="newTag" placeholder="Nyt tag" maxlength="40"><button class="iconbtn" id="newTagBtn">Opret og sæt på</button></div>
+          <div class="note">${p.l ? 'Du har selv valgt tags til dette opslag. <button class="linkbtn" data-act="auto">Brug automatiske tags igen</button>' : 'Tags er sat automatisk ud fra teksten. Når du ændrer dem, bliver dit valg stående.'}</div>
+        </div>
+      </div>`;
+    const r = $('reader');
+    r.scrollTop = 0;
+    r.querySelector('[data-act=prev]').onclick = () => step(-1);
+    r.querySelector('[data-act=next]').onclick = () => step(1);
+    r.querySelector('[data-act=close]').onclick = closeReader;
+    r.querySelectorAll('.tchip').forEach((b) => b.onclick = () => {
+      const set = new Set(p.g); set.has(b.dataset.t) ? set.delete(b.dataset.t) : set.add(b.dataset.t);
+      saveTags(p, [...set]);
+    });
+    const auto = r.querySelector('[data-act=auto]');
+    if (auto) auto.onclick = async () => {
+      try { const res = await api('post-tags', { id: p.id, auto: true }); p.g = res.tags; p.l = res.locked; afterTagChange(p); toast('Automatiske tags sat'); }
+      catch (e) { toast('Tags blev ikke gemt: ' + e.message); }
+    };
+    const create = async () => {
+      const name = $('newTag').value.trim().replace(/\s+/g, ' ').slice(0, 40);
       if (!name) return;
       if (!defs.some((d) => d.name === name)) {
-        const palette = ['#8b5cf6','#ec4899','#10b981','#f97316','#0ea5e9','#eab308','#14b8a6','#6366f1','#a855f7','#22c55e'];
+        const palette = ['#7c5cd6','#d64f8f','#1f9d74','#e07a2e','#1f8fc2','#c9a227','#16a3a0','#5560d6','#9b4fd6','#3aa655'];
         try {
           const res = await api('tags', { tags: defs.map((d) => ({ ...d, oldName: d.name })).concat([{ name, color: palette[defs.length % palette.length], keywords: [] }]) });
-          defs = res.tags; buildTagChips();
-        } catch (err) { toast('Kunne ikke oprette tag: ' + err.message); return; }
+          defs = res.tags;
+        } catch (e) { toast('Tagget blev ikke oprettet: ' + e.message); return; }
       }
-      chosen.add(name); inp.value = '';
-      pop.querySelector('.list').innerHTML = list(); sync();
+      saveTags(p, [...new Set([...p.g, name])]);
     };
-    pop.querySelector('.btn.primary').onclick = async () => {
-      try {
-        const res = await api('post-tags', { id: p.id, tags: [...chosen] });
-        p.g = res.tags; p.l = res.locked; closePop(); done(); buildTagChips(); toast('Tags gemt');
-      } catch (err) { toast('Kunne ikke gemme: ' + err.message); }
-    };
-    pop.querySelector('.reset').onclick = async () => {
-      try {
-        const res = await api('post-tags', { id: p.id, auto: true });
-        p.g = res.tags; p.l = res.locked; closePop(); done(); buildTagChips(); toast('Automatiske tags sat');
-      } catch (err) { toast('Fejl: ' + err.message); }
-    };
+    $('newTagBtn').onclick = create;
+    $('newTag').onkeydown = (e) => { if (e.key === 'Enter') create(); };
   }
 
-  /* ---- Administrer tags ---- */
+  async function saveTags(p, tags) {
+    try {
+      const res = await api('post-tags', { id: p.id, tags });
+      p.g = res.tags; p.l = res.locked; afterTagChange(p); toast('Tags gemt');
+    } catch (e) { toast('Tags blev ikke gemt: ' + e.message); }
+  }
+
+  function afterTagChange(p) {
+    const el = document.querySelector(`.item[data-id="${CSS.escape(p.id)}"]`);
+    if (el) el.innerHTML = itemHtml(p);
+    renderSide(); renderReader();
+  }
+
+  /* ---------- Tag-administration ---------- */
   function tagRow(d) {
     const n = all.filter((p) => p.g.includes(d.name)).length;
-    const row = document.createElement('div'); row.className = 'trow';
-    row.dataset.old = d.name || '';
+    const row = document.createElement('div'); row.className = 'trow'; row.dataset.old = d.name || '';
     row.innerHTML = `<input type="color" value="${esc(d.color || '#64748b')}" aria-label="Farve">
-      <input type="text" class="name" value="${esc(d.name || '')}" placeholder="Navn" maxlength="40">
-      <textarea class="kw" placeholder="Nøgleord, adskilt med komma">${esc((d.keywords || []).join(', '))}</textarea>
-      <span class="n">${d.name ? n : ''}</span><button class="del" title="Slet tag">×</button>`;
+      <input type="text" class="name" value="${esc(d.name || '')}" placeholder="Navn" maxlength="40" aria-label="Navn">
+      <textarea class="kw" placeholder="Nøgleord, adskilt med komma" aria-label="Nøgleord">${esc((d.keywords || []).join(', '))}</textarea>
+      <span class="n">${d.name ? n : ''}</span><button class="del" title="Slet tag" aria-label="Slet tag">×</button>`;
     row.querySelector('.del').onclick = () => row.remove();
     return row;
   }
-  $('manage').onclick = () => {
-    const box = $('tagRows'); box.innerHTML = '';
-    defs.forEach((d) => box.appendChild(tagRow(d)));
-    $('dlgMsg').textContent = ''; $('dlg').showModal();
-  };
+  $('manage').onclick = () => { $('tagRows').innerHTML = ''; defs.forEach((d) => $('tagRows').appendChild(tagRow(d))); $('dlgMsg').textContent = ''; $('dlg').showModal(); };
   $('dlgClose').onclick = () => $('dlg').close();
   $('addRow').onclick = () => { const r = tagRow({ color: '#64748b', keywords: [] }); $('tagRows').appendChild(r); r.querySelector('.name').focus(); };
   $('dlgSave').onclick = async () => {
     const tags = [...$('tagRows').querySelectorAll('.trow')].map((r) => ({
-      name: r.querySelector('.name').value.trim(),
-      oldName: r.dataset.old,
+      name: r.querySelector('.name').value.trim(), oldName: r.dataset.old,
       color: r.querySelector('input[type=color]').value,
       keywords: r.querySelector('.kw').value.split(',').map((s) => s.trim()).filter(Boolean)
     })).filter((t) => t.name);
-    $('dlgMsg').textContent = 'Gemmer og opdaterer…';
+    $('dlgMsg').textContent = 'Gemmer…';
     try {
       const res = await api('tags', { tags });
-      $('dlgMsg').textContent = `Gemt. ${res.retagged} opslag fik opdateret automatiske tags. Siden genindlæses…`;
+      $('dlgMsg').textContent = `Gemt. ${res.retagged} opslag fik opdateret automatiske tags. Siden genindlæses.`;
       setTimeout(() => location.reload(), 900);
-    } catch (err) { $('dlgMsg').textContent = 'Fejl: ' + err.message; }
+    } catch (e) { $('dlgMsg').textContent = 'Tags blev ikke gemt: ' + e.message; }
   };
 
-  /* ---- Opsætning ---- */
-  function setSize(big) {
-    $('list').classList.toggle('big', big);
-    $('size').textContent = big ? 'Små kort' : 'Store kort';
-    store.set('lf-size', big ? 'big' : 'small');
-  }
-  $('size').onclick = () => setSize(!$('list').classList.contains('big'));
-  setSize(store.get('lf-size') === 'big');
-
+  /* ---------- Hændelser ---------- */
+  $('side').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if ('period' in b.dataset) { st.period = b.dataset.period; update(); }
+    else if ('tag' in b.dataset) { st.tags.has(b.dataset.tag) ? st.tags.delete(b.dataset.tag) : st.tags.add(b.dataset.tag); update(); }
+    else if ('mode' in b.dataset) { st.mode = b.dataset.mode; update(); }
+    else if ('author' in b.dataset) { st.author = st.author === b.dataset.author ? '' : b.dataset.author; update(); }
+  });
+  $('authorSearch').addEventListener('input', renderSide);
+  $('from').addEventListener('change', (e) => { st.from = e.target.value; update(); });
+  $('to').addEventListener('change', (e) => { st.to = e.target.value; update(); });
+  $('imgOnly').addEventListener('change', (e) => { st.imgOnly = e.target.checked; update(); });
+  $('sort').addEventListener('change', (e) => { st.sort = e.target.value; update(); });
   let timer;
-  $('q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(apply, 200); });
-  ['author', 'sort', 'tagMode', 'from', 'to', 'imgOnly'].forEach((id) => $(id).addEventListener('change', apply));
-  $('period').addEventListener('change', () => { $('customDates').hidden = $('period').value !== 'custom'; apply(); });
-  $('clear').onclick = () => {
-    $('q').value = ''; $('author').value = ''; $('period').value = ''; $('customDates').hidden = true;
-    $('from').value = ''; $('to').value = ''; $('imgOnly').checked = false; selTags.clear(); buildTagChips(); apply();
-  };
-  window.addEventListener('scroll', () => {
-    if (rendered < shown.length && innerHeight + scrollY > document.body.offsetHeight - 1200) renderMore();
+  $('q').addEventListener('input', (e) => { clearTimeout(timer); timer = setTimeout(() => { st.q = e.target.value.trim(); update(); }, 180); });
+  document.querySelectorAll('.seg button').forEach((b) => b.onclick = () => { st.view = b.dataset.view; store.set('lf-view', st.view); update(); });
+  $('openSide').onclick = () => $('side').classList.add('open');
+  $('closeSide').onclick = () => $('side').classList.remove('open');
+  $('scroll').addEventListener('scroll', () => {
+    const s = $('scroll');
+    if (rendered < shown.length && s.scrollTop + s.clientHeight > s.scrollHeight - 800) renderMore();
+  });
+  document.addEventListener('keydown', (e) => {
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (e.key === '/' && !typing) { e.preventDefault(); $('q').focus(); return; }
+    if (e.key === 'Escape') { if ($('dlg').open) return; if (typing) { document.activeElement.blur(); return; } closeReader(); return; }
+    if (typing || $('dlg').open) return;
+    if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); step(1); }
+    if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); step(-1); }
   });
 
-  buildAuthors();
-  buildTagChips();
-  apply();
+  update();
 })();
 </script>
 </body>
